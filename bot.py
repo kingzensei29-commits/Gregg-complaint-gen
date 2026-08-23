@@ -142,7 +142,7 @@ BRANDS = {
     "dixy": {
         "name": "Dixy Chicken",
         "email": "support@dixychicken.com",
-        "color": 0xFFD700, # Gold/Yellow styling
+        "color": 0xFFD700,
         "branches": [
             {"town": "Birmingham", "street": "Corporation Street"},
             {"town": "Birmingham", "street": "Bristol Road, Selly Oak"},
@@ -153,6 +153,22 @@ BRANDS = {
         "scenarios": [
             "I ordered a {item} late night at your {street} branch in {town}. Not only was my garlic sauce completely missing from the bag, but the chips were stone cold and tasted like they'd been sitting under the heat lamp since yesterday afternoon.",
             "Visited the {town} restaurant on {street} and got a {item}. The chicken inside was completely rubbery and undercooked, and the staff laughed when I brought it back to the counter!"
+        ]
+    },
+    "mcdonalds": {
+        "name": "McDonald's",
+        "email": "customerservices@mcdonalds.co.uk",
+        "color": 0xFFC72C, # Iconic McDonald's Gold
+        "branches": [
+            {"town": "Birmingham", "street": "Priors Hall / Bull Street"},
+            {"town": "London", "street": "Leicester Square"},
+            {"town": "Manchester", "street": "Market Street"},
+            {"town": "Glasgow", "street": "Argyle Street"}
+        ],
+        "items": ["Big Mac Medium Meal", "McSpicy Meal", "Quarter Pounder with Cheese", "20 Chicken McNuggets Share Box"],
+        "scenarios": [
+            "I went through the drive-thru at your {street} branch in {town} and ordered a {item}. When I opened the bag up down the street, my fries were completely cold, salted to the point of being inedible, and my main burger had a massive hair baked right into the bun.",
+            "Ordered a {item} via the front counter at the {town} store on {street}. I waited nearly 35 minutes for a standard order, and when I finally received it, half the items were missing and the burger was completely raw in the middle."
         ]
     }
 }
@@ -228,16 +244,19 @@ def generate_angry_complaint(brand_key):
     scenario = random.choice(b_data["scenarios"]).format(town=town, street=street, item=item)
     closing = random.choice(ANGRY_CLOSINGS)
     signoff = random.choice(SIGN_OFFS)
-    name = fake.name()
+    
+    # Generated name is locked for both customer profile match & sign-off consistency to bypass spam filters
+    consistent_name = fake.name()
     
     email_body = (
         f"{opening}\n\n"
+        f"Complainant Details: {consistent_name}\n"
         f"Branch Location: {b_data['name']}, {street}, {town}\n\n"
         f"{scenario}\n\n"
         f"{closing}\n\n"
-        f"{signoff}\n{name}"
+        f"{signoff}\n{consistent_name}"
     )
-    return email_body, name, town, street, item
+    return email_body, consistent_name, town, street, item
 
 
 def create_email_image(sender, recipient, subject, body, brand_color="#F26522", output_path="sent_complaint.png"):
@@ -335,7 +354,7 @@ async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, te
             add_user_balance(user_id, reward_amount)
             add_user_voucher(user_id, username, b_name, reward_amount)
 
-            color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700"}
+            color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700", "mcdonalds": "#FFC72C"}
             img_path = create_reply_image(sender, subject, body[:700], brand_color=color_map.get(brand_key, "#F26522"))
             file = discord.File(img_path, filename="support_reply.png")
             
@@ -368,7 +387,7 @@ async def handle_complaint(ctx, brand_key):
     email_body, name, town, street, item = generate_angry_complaint(brand_key)
     subject_line = f"Formal Complaint regarding service at {town} ({street}) branch"
 
-    color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700"}
+    color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700", "mcdonalds": "#FFC72C"}
     color_hex = color_map.get(brand_key, "#F26522")
     
     sent_img_path = create_email_image(burner_address, b_data["email"], subject_line, email_body, brand_color=color_hex)
@@ -427,19 +446,25 @@ async def kfc(ctx, action: str = None):
     else:
         await ctx.send("⚠️ Usage: Type `!kfc gen` to file a KFC complaint, or `!redeem` to check your vouchers.")
 
-# --- Dixy Command restricted to specific Role ID ---
-@bot.command(name="dixy")
-async def dixy(ctx, action: str = None):
+
+# --- Helper Function for Role-Locked Commands ---
+async def check_og_role(ctx):
     required_role_id = 1541122329814368336
-    
-    # Check if the user has the required role
     has_role = any(role.id == required_role_id for role in ctx.author.roles)
     if not has_role:
-        await ctx.send(f"⛔ {ctx.author.mention}, you do not have permission to use Dixy commands (requires role ID `{required_role_id}`).", delete_after=10)
+        await ctx.send(f"⛔ {ctx.author.mention}, you do not have permission to use this OG command (requires role ID `{required_role_id}`).", delete_after=10)
         try:
             await ctx.message.delete()
         except Exception:
             pass
+        return False
+    return True
+
+
+# --- Dixy Command (OGs Only) ---
+@bot.command(name="dixy")
+async def dixy(ctx, action: str = None):
+    if not await check_og_role(ctx):
         return
 
     if action == "gen":
@@ -448,19 +473,29 @@ async def dixy(ctx, action: str = None):
         await ctx.send("⚠️ Usage: Type `!dixy gen` to file a Dixy Chicken complaint, or `!redeem` to check your vouchers.")
 
 
+# --- McDonald's Command (OGs Only) ---
+@bot.command(name="mcdonalds", aliases=["maccies", "mac"])
+async def mcdonalds(ctx, action: str = None):
+    if not await check_og_role(ctx):
+        return
+
+    if action == "gen":
+        await handle_complaint(ctx, "mcdonalds")
+    else:
+        await ctx.send("⚠️ Usage: Type `!mcdonalds gen` to file a McDonald's complaint, or `!redeem` to check your vouchers.")
+
+
 # --- Secure Ownership-Checked Redeem Command ---
 @bot.command(name="redeem", aliases=["voucher"])
 async def redeem_vouchers(ctx, *, voucher_code: str = None):
     data = load_economy()
     caller_uid = str(ctx.author.id)
 
-    # Delete the command message in the public channel instantly for privacy
     try:
         await ctx.message.delete()
     except Exception:
         pass
 
-    # If a specific voucher code was provided, search all users to find who owns it
     if voucher_code:
         target_voucher = None
         owner_uid = None
@@ -477,7 +512,6 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
             if target_voucher:
                 break
 
-        # Verification: Check if code exists and if the caller owns it
         if target_voucher and owner_uid == caller_uid:
             data[owner_uid]["vouchers"].pop(target_idx)
             save_economy(data)
@@ -492,7 +526,7 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
                     f"**Code:** `{target_voucher['code']}`\n\n"
                     f"*This voucher has now been permanently processed and removed from your wallet.*"
                 ),
-                color=0x2ECC71 # Green embed
+                color=0x2ECC71 
             )
             try:
                 await ctx.author.send(embed=embed)
@@ -508,7 +542,7 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
                     f"**Reason:** Code invalid, already used, or does not belong to your account ID.\n"
                     f"**Attempted Code:** `{voucher_code}`"
                 ),
-                color=0xE74C3C # Red embed
+                color=0xE74C3C 
             )
             try:
                 await ctx.author.send(embed=embed)
@@ -516,7 +550,6 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
                 await ctx.send(f"{ctx.author.mention}, that voucher code was declined (invalid or unauthorized).", delete_after=10)
             return
 
-    # Otherwise, show their entire voucher wallet in their DMs
     user_data = data.get(caller_uid, {"balance": 0.0, "vouchers": []})
     balance = user_data["balance"]
     vouchers = user_data["vouchers"]
@@ -536,7 +569,7 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
         voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f})\n  ↳ Code: `{v['code']}`" for v in vouchers])
         embed.add_field(name="🎁 Your Unique Vouchers", value=voucher_list_str, inline=False)
     else:
-        embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, `!kfc gen`, or `!dixy gen`!*", inline=False)
+        embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!dixy gen`, or `!mcdonalds gen`!*", inline=False)
 
     try:
         await ctx.author.send(embed=embed)
