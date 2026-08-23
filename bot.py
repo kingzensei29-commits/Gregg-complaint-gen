@@ -158,7 +158,7 @@ BRANDS = {
     "mcdonalds": {
         "name": "McDonald's",
         "email": "customerservices@mcdonalds.co.uk",
-        "color": 0xFFC72C, # Iconic McDonald's Gold
+        "color": 0xFFC72C,
         "branches": [
             {"town": "Birmingham", "street": "Priors Hall / Bull Street"},
             {"town": "London", "street": "Leicester Square"},
@@ -190,12 +190,18 @@ SIGN_OFFS = ["Furious regards,", "Disgusted,", "Extremely unsatisfied,", "Waitin
 
 
 class SafeTempMail:
-    def __init__(self):
+    def __init__(self, forced_name=None):
         clean_domains = ["gmail-inbox.com", "mail-box.net", "verify-user.com", "1secmail.org"]
-        first_names = ["alex", "jamie", "sam", "chris", "jordan", "taylor"]
-        last_names = ["smith", "jones", "taylor", "brown", "wilson", "davies"]
         
-        self.username = f"{random.choice(first_names)}.{random.choice(last_names)}{random.randint(1985, 2024)}"
+        if forced_name:
+            parts = forced_name.lower().split()
+            if len(parts) >= 2:
+                self.username = f"{parts[0]}.{parts[1]}{random.randint(10, 99)}"
+            else:
+                self.username = f"{parts[0]}{random.randint(100, 999)}"
+        else:
+            self.username = f"user.{random.randint(1000, 9999)}"
+
         self.domain = random.choice(clean_domains)
         self.address = f"{self.username}@{self.domain}"
         
@@ -245,7 +251,7 @@ def generate_angry_complaint(brand_key):
     closing = random.choice(ANGRY_CLOSINGS)
     signoff = random.choice(SIGN_OFFS)
     
-    # Generated name is locked for both customer profile match & sign-off consistency to bypass spam filters
+    # Generate name and immediately lock it to match email prefix & body sign-off
     consistent_name = fake.name()
     
     email_body = (
@@ -381,10 +387,14 @@ async def on_ready():
 
 async def handle_complaint(ctx, brand_key):
     b_data = BRANDS[brand_key]
-    temp_email = SafeTempMail()
+    
+    # Generate the email body and consistent name first
+    email_body, complaint_name, town, street, item = generate_angry_complaint(brand_key)
+    
+    # Create burner email derived from the exact generated complaint name
+    temp_email = SafeTempMail(forced_name=complaint_name)
     burner_address = temp_email.address
     
-    email_body, name, town, street, item = generate_angry_complaint(brand_key)
     subject_line = f"Formal Complaint regarding service at {town} ({street}) branch"
 
     color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700", "mcdonalds": "#FFC72C"}
@@ -447,7 +457,6 @@ async def kfc(ctx, action: str = None):
         await ctx.send("⚠️ Usage: Type `!kfc gen` to file a KFC complaint, or `!redeem` to check your vouchers.")
 
 
-# --- Helper Function for Role-Locked Commands ---
 async def check_og_role(ctx):
     required_role_id = 1541122329814368336
     has_role = any(role.id == required_role_id for role in ctx.author.roles)
@@ -461,7 +470,6 @@ async def check_og_role(ctx):
     return True
 
 
-# --- Dixy Command (OGs Only) ---
 @bot.command(name="dixy")
 async def dixy(ctx, action: str = None):
     if not await check_og_role(ctx):
@@ -473,7 +481,6 @@ async def dixy(ctx, action: str = None):
         await ctx.send("⚠️ Usage: Type `!dixy gen` to file a Dixy Chicken complaint, or `!redeem` to check your vouchers.")
 
 
-# --- McDonald's Command (OGs Only) ---
 @bot.command(name="mcdonalds", aliases=["maccies", "mac"])
 async def mcdonalds(ctx, action: str = None):
     if not await check_og_role(ctx):
@@ -485,7 +492,6 @@ async def mcdonalds(ctx, action: str = None):
         await ctx.send("⚠️ Usage: Type `!mcdonalds gen` to file a McDonald's complaint, or `!redeem` to check your vouchers.")
 
 
-# --- Secure Ownership-Checked Redeem Command ---
 @bot.command(name="redeem", aliases=["voucher"])
 async def redeem_vouchers(ctx, *, voucher_code: str = None):
     data = load_economy()
