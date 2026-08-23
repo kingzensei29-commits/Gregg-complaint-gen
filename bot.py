@@ -525,11 +525,15 @@ async def on_message(message):
                 await message.reply(f"❌ Could not find pipeline with ID/Address `{query_key}` in the database.")
                 return
 
-    # 3. Free-flowing Code-Brain Chat
-    if not content.startswith("!"):
-        async with message.channel.typing():
-            ai_reply = await asyncio.to_thread(ask_mistral_chatbot, content, message.author.name, message.author.id)
-            await message.reply(ai_reply)
+    # 3. Code-Brain Chat (Only when specifically pinged/mentioned)
+    if bot.user.mentioned_in(message) and not content.startswith("!"):
+        # Strip the bot's mention formatting so Mistral only sees the actual question
+        clean_query = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
+        
+        if clean_query:
+            async with message.channel.typing():
+                ai_reply = await asyncio.to_thread(ask_mistral_chatbot, clean_query, message.author.name, message.author.id)
+                await message.reply(ai_reply)
         return
 
     await bot.process_commands(message)
