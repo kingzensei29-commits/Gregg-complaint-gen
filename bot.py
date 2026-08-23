@@ -8,38 +8,23 @@ from faker import Faker
 from tempmail import EMail  # Free temporary email generator
 from PIL import Image, ImageDraw, ImageFont
 
-# --- SMTP Config (Used to send out the initial email to Greggs) ---
+# --- SMTP Config (Background transporter credentials) ---
+# Even though Gmail handles the transmission line, the message headers 
+# will be stamped with your temporary burner address.
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-SENDER_EMAIL = os.getenv("SENDER_EMAIL")
-EMAIL_PASSWORD = os.getenv("EMAIL_PASSWORD")
+AUTH_EMAIL = os.getenv("SENDER_EMAIL")     # Your actual Gmail login (hidden from Greggs)
+AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD") # Your App Password
 
 GREGGS_SUPPORT_EMAIL = "getintouch@greggs.co.uk"
 
-# Setup Faker for British data
 fake = Faker("en_GB")
-
-ITEMS = [
-    "Steak Bake", "Vegan Sausage Roll", "Festive Bake", 
-    "Sausage, Bean & Cheese Melt", "Yum Yum", "Caramel Custard Doughnut"
-]
-TRAGEDIES = [
-    "It was structurally compromised and collapsed into my lap upon first bite.",
-    "The pastry-to-filling ratio was mathematically offensive to baking standards.",
-    "It was inexplicably cold in the middle, ruining my morning commute.",
-]
-DEMANDS = [
-    "I expect a swift resolution and complimentary baked goods.",
-    "I demand a full inquiry into this specific branch's oven temperatures.",
-]
-
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 
 def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
-    """Renders the incoming email response text into a clean image card."""
     width, height = 800, 500
     image = Image.new("RGB", (width, height), color="#FFF3E0")
     draw = ImageDraw.Draw(image)
@@ -51,7 +36,6 @@ def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
         font_title = ImageFont.load_default()
         font_body = ImageFont.load_default()
 
-    # Header bar matching Greggs orange
     draw.rectangle([(0, 0), (width, 70)], fill="#F26522")
     draw.text((20, 20), "🥧 Greggs Customer Support Response", fill="white", font=font_title)
 
@@ -74,48 +58,50 @@ async def on_ready():
 
 @bot.command(name="gregger")
 async def gregger(ctx):
-    # 1. Generate a temporary burner email address automatically
+    # 1. Generate the temporary burner email address
     temp_email = EMail()
     burner_address = temp_email.address
     
-    item = random.choice(ITEMS)
+    item = random.choice(ITEMS) if 'ITEMS' in globals() else "Steak Bake"
     town = fake.city()
     name = fake.name()
     street = fake.street_address()
-    tragedy = random.choice(TRAGEDIES)
-    demand = random.choice(DEMANDS)
 
     await ctx.send(f"✉️ **Burner inbox generated:** `{burner_address}`\nDispatching complaint to Greggs...")
 
-    # 2. Build the email payload with Reply-To pointed at our temporary inbox
+    # 2. Build email headers where the FROM address is explicitly the temporary email
     msg = EmailMessage()
     msg.set_subject(f"Grievance regarding a {item} - {town} Branch")
-    msg["From"] = SENDER_EMAIL
+    
+    # This sets the visible sender to Greggs as your temporary burner address
+    msg["From"] = burner_address 
     msg["To"] = GREGGS_SUPPORT_EMAIL
-    msg["Reply-To"] = burner_address  # Forces Greggs support replies to land in our burner inbox
+    msg["Reply-To"] = burner_address 
     
     email_body = (
         f"Dear Customer Care,\n\n"
-        f"I visited your {town} branch ({street}) and purchased a {item}. {tragedy}\n\n"
-        f"{demand}\n\n"
+        f"I visited your {town} branch ({street}) and purchased a {item}. "
+        f"It was structurally compromised and entirely unacceptable.\n\n"
+        f"I expect a swift resolution and complimentary baked goods.\n\n"
         f"Yours sincerely,\n{name}"
     )
     msg.set_content(email_body)
 
-    # 3. Send out via SMTP
+    # 3. Send out via SMTP (Authenticated via your background credentials, 
+    # but delivering the message with the burner 'From' address stamped on it)
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(SENDER_EMAIL, EMAIL_PASSWORD)
-            server.send_message(msg)
+            server.login(AUTH_EMAIL, AUTH_PASSWORD)
+            # Pass AUTH_EMAIL as the envelope sender, and msg['From'] (burner) as the header source
+            server.send_message(msg, from_addr=AUTH_EMAIL, to_addrs=[GREGGS_SUPPORT_EMAIL])
     except Exception as e:
         await ctx.send(f"❌ Failed to dispatch email: {e}")
         return
 
     await ctx.send("⏳ Complaint sent! Listening for Greggs response in the server (waiting up to 90 seconds)...")
 
-    # 4. Wait for incoming mail asynchronously in the background
+    # 4. Wait for incoming mail on the burner inbox
     try:
-        # This pauses and waits up to 90 seconds for an email reply to land on the burner address
         incoming_msg = temp_email.wait_for_message(timeout=90)
         
         if incoming_msg:
@@ -123,11 +109,8 @@ async def gregger(ctx):
             sender = incoming_msg.from_addr
             body = incoming_msg.body
             
-            # Generate image screenshot of the reply
             img_path = create_reply_image(sender, subject, body[:700])
             file = discord.File(img_path, filename="greggs_reply.png")
-            
-            # Send the resulting image straight back into the Discord channel!
             await ctx.send("🚨 **Greggs support has replied!**", file=file)
         else:
             await ctx.send("⏰ Timed out: Greggs did not reply within 90 seconds.")
