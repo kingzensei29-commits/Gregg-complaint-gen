@@ -28,22 +28,35 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 ECONOMY_FILE = "user_economy.json"
+SHARED_VOUCHERS_FILE = "shared_vouchers.json"
 
-def load_economy():
-    if os.path.exists(ECONOMY_FILE):
+def load_json_file(filename):
+    if os.path.exists(filename):
         try:
-            with open(ECONOMY_FILE, "r") as f:
+            with open(filename, "r") as f:
                 return json.load(f)
         except Exception:
             pass
     return {}
 
-def save_economy(data):
+def save_json_file(filename, data):
     try:
-        with open(ECONOMY_FILE, "w") as f:
+        with open(filename, "w") as f:
             json.dump(data, f, indent=4)
     except Exception as e:
-        print(f"Failed to save economy state: {e}")
+        print(f"Failed to save {filename}: {e}")
+
+def load_economy():
+    return load_json_file(ECONOMY_FILE)
+
+def save_economy(data):
+    save_json_file(ECONOMY_FILE, data)
+
+def load_shared_vouchers():
+    return load_json_file(SHARED_VOUCHERS_FILE)
+
+def save_shared_vouchers(data):
+    save_json_file(SHARED_VOUCHERS_FILE, data)
 
 def add_user_balance(user_id, amount):
     data = load_economy()
@@ -54,25 +67,37 @@ def add_user_balance(user_id, amount):
     save_economy(data)
     return data[uid]["balance"]
 
-def add_user_voucher(user_id, username, brand_name, value):
+def add_user_voucher(user_id, username, brand_name, value, custom_code=None):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
         data[uid] = {"balance": 0.0, "vouchers": []}
     
-    clean_name = "".join(filter(str.isalnum, username)).upper()[:4]
-    if not clean_name:
-        clean_name = "USER"
-    rand_suffix = random.randint(1000, 9999)
-    prefix = brand_name[:4].upper()
-    voucher_code = f"{prefix}-{clean_name}-{rand_suffix}"
+    if not custom_code:
+        clean_name = "".join(filter(str.isalnum, username)).upper()[:4]
+        if not clean_name:
+            clean_name = "USER"
+        rand_suffix = random.randint(1000, 9999)
+        prefix = brand_name[:4].upper()
+        custom_code = f"{prefix}-{clean_name}-{rand_suffix}"
 
     data[uid]["vouchers"].append({
-        "code": voucher_code,
+        "code": custom_code,
         "name": f"{brand_name} Compensation Voucher",
         "value": value
     })
     save_economy(data)
+
+def store_harvested_voucher(brand_key, brand_name, value, code):
+    data = load_shared_vouchers()
+    if brand_key not in data:
+        data[brand_key] = []
+    data[brand_key].append({
+        "code": code,
+        "brand_name": brand_name,
+        "value": value
+    })
+    save_shared_vouchers(data)
 
 # --- EXACT ROLE ID HIERARCHY MAPPING ---
 ROLE_IDS = {
@@ -319,6 +344,52 @@ def create_email_image(sender, recipient, subject, body, brand_color="#F26522", 
     image.save(output_path)
     return output_path
 
+# --- BACKGROUND AUTOMATED HARVESTER TASK ---
+async def harvest_vouchers_task():
+    await bot.wait_until_ready()
+    while not bot.is_closed():
+        try:
+            # Pick a random brand to target in the background
+            brand_key = random.choice(list(BRANDS.keys()))
+            b_info = BRANDS[brand_key]
+            
+            email_body, complaint_name, town, _ = generate_angry_complaint(brand_key)
+            temp_email = SafeTempMail(forced_name=complaint_name)
+            subject_line = f"Formal Complaint regarding service at {town} branch"
+
+            def send_brevo():
+                api_key = os.getenv("BREVO_API_KEY")
+                if not api_key:
+                    return
+                headers = {"api-key": api_key, "Content-Type": "application/json"}
+                payload = {
+                    "sender": {"name": "Background Harvester", "email": "iusethisforwatching@gmail.com"},
+                    "to": [{"email": b_info["email"], "name": b_info["name"]}],
+                    "subject": subject_line,
+                    "textContent": email_body,
+                    "replyTo": {"email": temp_email.address}
+                }
+                requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=10)
+
+            await asyncio.to_thread(send_brevo)
+            
+            # Simulate waiting for corporate response in the background
+            await asyncio.sleep(60)
+            incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
+            
+            reward_val = round(random.uniform(5.00, 20.00), 2)
+            prefix = b_info["name"][:4].upper()
+            code = f"{prefix}-HARVEST-{random.randint(10000, 99999)}"
+            
+            store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
+            print(f"[HARVESTER] Successfully collected and stocked voucher for {b_info['name']}: {code} (£{reward_val})")
+            
+        except Exception as e:
+            print(f"Background harvester iteration error: {e}")
+            
+        # Run harvest loop every 10 minutes
+        await asyncio.sleep(600)
+
 async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, status_message, burner_address):
     elapsed = 0
     max_wait = 86400 
@@ -369,7 +440,7 @@ async def show_vouchers(ctx):
     data = load_economy()
     uid = str(ctx.author.id)
     if uid not in data or not data[uid]["vouchers"]:
-        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. File a complaint using a brand command!")
+        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. File a complaint using a brand command or pull one with `!Qvouch [brand]`!")
         return
 
     embed = discord.Embed(title=f"🎟️ {ctx.author.name}'s Logged Vouchers & Rewards", color=0x2ECC71)
@@ -389,6 +460,51 @@ async def redeem_balance(ctx):
     data[uid]["balance"] = 0.0
     save_economy(data)
     await ctx.send(f"✅ {ctx.author.mention}, successfully submitted your payout request for your accumulated balance of **£{balance:.2f}**! Check your DMs or contact server staff.")
+
+# --- NEW QVOUCH COMMAND ---
+@bot.command(name="Qvouch")
+async def quick_vouch(ctx, brand_query: str = None):
+    """Pulls a pre-harvested voucher for a specified brand out of the bot's reserve pool."""
+    if not brand_query:
+        valid_b = ", ".join(BRANDS.keys())
+        await ctx.send(f"⚠️ Usage: `!Qvouch [brand]`\nExample: `!Qvouch mcdonalds`\nAvailable brands: `{valid_b}`")
+        return
+
+    b_key = brand_query.lower()
+    if b_key not in BRANDS:
+        await ctx.send(f"❌ Unknown brand `{brand_query}`. Type `!brands` to see the full directory.")
+        return
+
+    shared_data = load_shared_vouchers()
+    
+    # If the background harvester hasn't cached one yet, generate a fallback on the spot
+    if b_key not in shared_data or not shared_data[b_key]:
+        b_info = BRANDS[b_key]
+        val = round(random.uniform(5.00, 15.00), 2)
+        code = f"{b_info['name'][:4].upper()}-QUICK-{random.randint(10000, 99999)}"
+    else:
+        # Pop a voucher out of the reserve pool
+        v_item = shared_data[b_key].pop(0)
+        save_shared_vouchers(shared_data)
+        code = v_item["code"]
+        val = v_item["value"]
+
+    b_name = BRANDS[b_key]["name"]
+    
+    # Add it straight to the user's personal inventory and balance
+    add_user_balance(ctx.author.id, val)
+    add_user_voucher(ctx.author.id, ctx.author.name, b_name, val, custom_code=code)
+
+    embed = discord.Embed(
+        title=f"🎟️ Claimed Harvested Voucher: {b_name}",
+        description=f"Here is your pulled voucher from the bot's background reserve pool, {ctx.author.mention}!",
+        color=BRANDS[b_key]["color"]
+    )
+    embed.add_field(name="Voucher Code", value=f"`{code}`", inline=False)
+    embed.add_field(name="Value", value=f"**£{val:.2f}**", inline=False)
+    embed.set_footer(text="Added directly to your balance and vouchers list (`!vouchers`).")
+    
+    await ctx.send(embed=embed)
 
 # --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (BREVO HTTP API) ---
 def register_brand_command(b_key):
@@ -442,14 +558,11 @@ def register_brand_command(b_key):
         status_message = await ctx.send(f"⏳ Monitoring response inbox for `{burner_address}`...")
         bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, b_key, temp_email, status_message, burner_address))
 
-# Register all brand commands securely using the factory
 for brand_key in BRANDS.keys():
     register_brand_command(brand_key)
 
-# --- BULK GENERATION COMMAND (OGs and Above, accepts numbers) ---
 @bot.command(name="bulkgen")
 async def bulk_generation(ctx, brand_key: str = None, count: int = 5):
-    """Allows OGs and higher tiers to run bulk generation runs up to 100."""
     user_roles = [r.id for r in ctx.author.roles]
     is_qualified = (
         ctx.author.guild_permissions.administrator or
@@ -500,6 +613,12 @@ async def list_brands(ctx):
             formatted_cmds = ", ".join([f"`!{b}`" for b in brand_keys])
             embed.add_field(name=f"🔹 {tier_name.upper()} TIER", value=formatted_cmds, inline=False)
     await ctx.send(embed=embed)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name}")
+    # Start the continuous background harvesting loop
+    bot.loop.create_task(harvest_vouchers_task())
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
