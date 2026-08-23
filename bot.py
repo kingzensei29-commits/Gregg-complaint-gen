@@ -260,7 +260,7 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
-# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (DIRECT HTTP API) ---
+# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (BREVO HTTP API) ---
 def register_brand_command(b_key):
     @bot.command(name=b_key)
     async def brand_command(ctx):
@@ -281,29 +281,30 @@ def register_brand_command(b_key):
 
         await ctx.send(f"🔥 **{b_info['name']}**: Ticket dispatched via `{burner_address}`", file=sent_file)
 
-        def send_http_email():
-            api_key = os.getenv("RESEND_API_KEY")
+        def send_brevo_email():
+            api_key = os.getenv("BREVO_API_KEY")
             if not api_key:
-                raise Exception("RESEND_API_KEY is missing from environment variables.")
+                raise Exception("BREVO_API_KEY is missing from environment variables.")
 
             headers = {
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
+                "api-key": api_key,
+                "Content-Type": "application/json",
+                "Accept": "application/json"
             }
             payload = {
-                "from": "Grievance Bot <onboarding@resend.dev>",
-                "to": [b_info["email"]],
+                "sender": {"name": "Grievance Bot", "email": "iusethisforwatching@gmail.com"},
+                "to": [{"email": b_info["email"], "name": b_info["name"]}],
                 "subject": subject_line,
-                "text": email_body,
-                "reply_to": burner_address
+                "textContent": email_body,
+                "replyTo": {"email": burner_address}
             }
             
-            response = requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=10)
-            if response.status_code not in [200, 201]:
-                raise Exception(f"API Error ({response.status_code}): {response.text}")
+            response = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=10)
+            if response.status_code not in [200, 201, 202]:
+                raise Exception(f"Brevo API Error ({response.status_code}): {response.text}")
 
         try:
-            await asyncio.to_thread(send_http_email)
+            await asyncio.to_thread(send_brevo_email)
         except Exception as e:
             await ctx.send(f"❌ Failed to dispatch email: {e}")
             return
