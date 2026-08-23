@@ -70,8 +70,7 @@ def add_user_voucher(user_id, voucher_name, value):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
-        data[uid]["balance"] = 0.0
-        data[uid]["vouchers"] = []
+        data[uid] = {"balance": 0.0, "vouchers": []}
     data[uid]["vouchers"].append({"name": voucher_name, "value": value})
     save_economy(data)
 
@@ -117,7 +116,7 @@ BRANDS = {
         "color": 0xF42A41,
         "branches": [
             {"town": "London", "street": "Leicester Square"},
-            {"town": "Birmingham", "strret": "Bullring Shopping Centre"},
+            {"town": "Birmingham", "street": "Bullring Shopping Centre"},
             {"town": "Manchester", "street": "Arndale Centre"},
             {"town": "Liverpool", "street": "Paradise Street"},
             {"town": "Cardiff", "street": "Queen Street"}
@@ -147,7 +146,6 @@ SIGN_OFFS = ["Furious regards,", "Disgusted,", "Extremely unsatisfied,", "Waitin
 
 
 class SafeTempMail:
-    """Generates clean, professional consumer-style email aliases."""
     def __init__(self):
         clean_domains = ["gmail-inbox.com", "mail-box.net", "verify-user.com", "1secmail.org"]
         first_names = ["alex", "jamie", "sam", "chris", "jordan", "taylor"]
@@ -328,7 +326,6 @@ async def watch_burner_inbox_with_progress(ctx, user_id, brand_key, temp_email, 
     )
 
 
-# --- INTERACTIVE VOUCHER REDEMPTION VIEW ---
 class VoucherRedeemSelect(discord.ui.Select):
     def __init__(self, vouchers):
         options = []
