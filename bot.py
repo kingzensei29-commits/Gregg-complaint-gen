@@ -291,9 +291,8 @@ def send_auto_reply_to_company(recipient_email, original_subject, burner_address
 
 
 async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_message, burner_address, max_wait_seconds=259200):
-    # Set to 72 hours (3 days) to realistically match Greggs customer service response times
     elapsed = 0
-    check_interval = 300  # Check every 5 minutes during the multi-day wait
+    check_interval = 300 
     auto_replied = False
 
     while elapsed < max_wait_seconds:
@@ -443,14 +442,12 @@ async def greg(ctx, action: str = None):
             f"{initial_emoji_bar}"
         )
 
-        # 259200 seconds = 72 hours (3 full days) response timer window
         bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, temp_email, status_message, burner_address, max_wait_seconds=259200))
     else:
         await ctx.send("⚠️ Usage: Type `!greg gen` to file a complaint, or `!redeem` to check and claim your saved vouchers.")
 
 
-@bot.command(name="voucher")
-@bot.command(name="redeem")
+@bot.command(name="redeem", aliases=["voucher"])
 async def redeem_vouchers(ctx):
     data = load_economy()
     uid = str(ctx.author.id)
