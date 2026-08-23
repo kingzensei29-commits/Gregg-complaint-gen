@@ -72,7 +72,6 @@ def add_user_voucher(user_id, username, brand_name, value):
     if uid not in data:
         data[uid] = {"balance": 0.0, "vouchers": []}
     
-    # Create a unique code embedding part of the user's name
     clean_name = "".join(filter(str.isalnum, username)).upper()[:4]
     if not clean_name:
         clean_name = "USER"
@@ -138,6 +137,22 @@ BRANDS = {
         "scenarios": [
             "Ordered a drive-thru meal at the {town} branch on {street}, including a {item}. Half of the items missing from the bag when I checked down the road, and the chicken was completely dry and stringy.",
             "Went into your {street} restaurant in {town} to order a {item}. The dining area was filthy, tables were uncleared, and my food took 45 minutes only to be served lukewarm."
+        ]
+    },
+    "dixy": {
+        "name": "Dixy Chicken",
+        "email": "support@dixychicken.com",
+        "color": 0xFFD700, # Gold/Yellow styling
+        "branches": [
+            {"town": "Birmingham", "street": "Corporation Street"},
+            {"town": "Birmingham", "street": "Bristol Road, Selly Oak"},
+            {"town": "Birmingham", "street": "Ladypool Road, Sparkbrook"},
+            {"town": "Birmingham", "street": "Alum Rock Road"}
+        ],
+        "items": ["Peri Peri Chicken Burger Meal", "Dixy Mighty Bucket", "Wings & Chips Combo", "Fillet Tower Meal with extra garlic sauce"],
+        "scenarios": [
+            "I ordered a {item} late night at your {street} branch in {town}. Not only was my garlic sauce completely missing from the bag, but the chips were stone cold and tasted like they'd been sitting under the heat lamp since yesterday afternoon.",
+            "Visited the {town} restaurant on {street} and got a {item}. The chicken inside was completely rubbery and undercooked, and the staff laughed when I brought it back to the counter!"
         ]
     }
 }
@@ -320,7 +335,8 @@ async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, te
             add_user_balance(user_id, reward_amount)
             add_user_voucher(user_id, username, b_name, reward_amount)
 
-            img_path = create_reply_image(sender, subject, body[:700], brand_color="#F26522" if brand_key=="greg" else ("#78BE20" if brand_key=="asda" else "#F42A41"))
+            color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700"}
+            img_path = create_reply_image(sender, subject, body[:700], brand_color=color_map.get(brand_key, "#F26522"))
             file = discord.File(img_path, filename="support_reply.png")
             
             await status_message.channel.send(
@@ -352,7 +368,9 @@ async def handle_complaint(ctx, brand_key):
     email_body, name, town, street, item = generate_angry_complaint(brand_key)
     subject_line = f"Formal Complaint regarding service at {town} ({street}) branch"
 
-    color_hex = "#F26522" if brand_key=="greg" else ("#78BE20" if brand_key=="asda" else "#F42A41")
+    color_map = {"greg": "#F26522", "asda": "#78BE20", "kfc": "#F42A41", "dixy": "#FFD700"}
+    color_hex = color_map.get(brand_key, "#F26522")
+    
     sent_img_path = create_email_image(burner_address, b_data["email"], subject_line, email_body, brand_color=color_hex)
     sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
     
@@ -409,6 +427,26 @@ async def kfc(ctx, action: str = None):
     else:
         await ctx.send("⚠️ Usage: Type `!kfc gen` to file a KFC complaint, or `!redeem` to check your vouchers.")
 
+# --- Dixy Command restricted to specific Role ID ---
+@bot.command(name="dixy")
+async def dixy(ctx, action: str = None):
+    required_role_id = 1541122329814368336
+    
+    # Check if the user has the required role
+    has_role = any(role.id == required_role_id for role in ctx.author.roles)
+    if not has_role:
+        await ctx.send(f"⛔ {ctx.author.mention}, you do not have permission to use Dixy commands (requires role ID `{required_role_id}`).", delete_after=10)
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
+        return
+
+    if action == "gen":
+        await handle_complaint(ctx, "dixy")
+    else:
+        await ctx.send("⚠️ Usage: Type `!dixy gen` to file a Dixy Chicken complaint, or `!redeem` to check your vouchers.")
+
 
 # --- Secure Ownership-Checked Redeem Command ---
 @bot.command(name="redeem", aliases=["voucher"])
@@ -441,7 +479,6 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
 
         # Verification: Check if code exists and if the caller owns it
         if target_voucher and owner_uid == caller_uid:
-            # Matches owner! Remove voucher and approve
             data[owner_uid]["vouchers"].pop(target_idx)
             save_economy(data)
 
@@ -464,7 +501,6 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
             return
 
         else:
-            # Either doesn't exist or belongs to someone else (Declined)
             embed = discord.Embed(
                 title="❌ VOUCHER DECLINED",
                 description=(
@@ -500,7 +536,7 @@ async def redeem_vouchers(ctx, *, voucher_code: str = None):
         voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f})\n  ↳ Code: `{v['code']}`" for v in vouchers])
         embed.add_field(name="🎁 Your Unique Vouchers", value=voucher_list_str, inline=False)
     else:
-        embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, or `!kfc gen`!*", inline=False)
+        embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, `!kfc gen`, or `!dixy gen`!*", inline=False)
 
     try:
         await ctx.author.send(embed=embed)
