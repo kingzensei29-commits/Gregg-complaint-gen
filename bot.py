@@ -9,7 +9,6 @@ import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
-import resend
 
 # --- Flask Tiny Web Server ---
 app = Flask(__name__)
@@ -21,9 +20,6 @@ def health_check():
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
-
-# Configure Resend API Key for HTTP-based email delivery
-resend.api_key = os.getenv("RESEND_API_KEY")
 
 fake = Faker("en_GB")
 
@@ -264,7 +260,7 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
-# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (RESEND HTTP API) ---
+# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (DIRECT HTTP API) ---
 def register_brand_command(b_key):
     @bot.command(name=b_key)
     async def brand_command(ctx):
@@ -285,18 +281,29 @@ def register_brand_command(b_key):
 
         await ctx.send(f"🔥 **{b_info['name']}**: Ticket dispatched via `{burner_address}`", file=sent_file)
 
-        def send_resend_task():
-            params = {
+        def send_http_email():
+            api_key = os.getenv("RESEND_API_KEY")
+            if not api_key:
+                raise Exception("RESEND_API_KEY is missing from environment variables.")
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            }
+            payload = {
                 "from": "Grievance Bot <onboarding@resend.dev>",
                 "to": [b_info["email"]],
                 "subject": subject_line,
                 "text": email_body,
                 "reply_to": burner_address
             }
-            resend.Emails.send(params)
+            
+            response = requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=10)
+            if response.status_code not in [200, 201]:
+                raise Exception(f"API Error ({response.status_code}): {response.text}")
 
         try:
-            await asyncio.to_thread(send_resend_task)
+            await asyncio.to_thread(send_http_email)
         except Exception as e:
             await ctx.send(f"❌ Failed to dispatch email: {e}")
             return
