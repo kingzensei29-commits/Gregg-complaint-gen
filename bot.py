@@ -3,17 +3,30 @@ import random
 import smtplib
 from email.message import EmailMessage
 import asyncio
+import threading
+from flask import Flask
 import discord
 from discord.ext import commands
 from faker import Faker
-from tempmail import EMail  # Free temporary email generator
+from tempmail import EMail
 from PIL import Image, ImageDraw, ImageFont
+
+# --- Flask Tiny Web Server (Required for Render Web Service Port Binding) ---
+app = Flask(__name__)
+
+@app.route("/")
+def health_check():
+    return "🥧 Greggs Grievance Bot is online and operational!"
+
+def run_web_server():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 # --- SMTP Config ---
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-AUTH_EMAIL = os.getenv("SENDER_EMAIL")     # Your background Gmail login
-AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD") # Your App Password
+AUTH_EMAIL = os.getenv("SENDER_EMAIL")     
+AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD") 
 
 GREGGS_SUPPORT_EMAIL = "getintouch@greggs.co.uk"
 
@@ -65,20 +78,15 @@ def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
 
 
 async def watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200):
-    """
-    Background watcher that checks for a reply over an extended period 
-    (Default: 7200 seconds = 2 hours) without freezing the bot command handler.
-    """
     elapsed = 0
-    check_interval = 30  # Check every 30 seconds
+    check_interval = 30 
 
     while elapsed < max_wait_seconds:
         await asyncio.sleep(check_interval)
         elapsed += check_interval
 
         try:
-            # Non-blocking or quick check for messages
-            incoming_msg = temp_email.get_message() # Checks current inbox state
+            incoming_msg = temp_email.get_message()
             if incoming_msg:
                 subject = incoming_msg.subject
                 sender = incoming_msg.from_addr
@@ -89,7 +97,6 @@ async def watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200):
                 await ctx.send(f"🚨 **Greggs support has replied to your burner email, {ctx.author.mention}!**", file=file)
                 return
         except Exception:
-            # Keep trying quietly if network blips occur
             continue
 
     await ctx.send(f"⏰ **Timed out:** Greggs did not reply within the 2-hour window for burner inbox `{temp_email.address}`.")
@@ -102,7 +109,6 @@ async def on_ready():
 
 @bot.command(name="gregger")
 async def gregger(ctx):
-    # 1. Generate the temporary burner email address
     temp_email = EMail()
     burner_address = temp_email.address
     
@@ -115,7 +121,6 @@ async def gregger(ctx):
 
     await ctx.send(f"✉️ **Burner inbox generated:** `{burner_address}`\nDispatching complaint to Greggs...")
 
-    # 2. Build email headers
     msg = EmailMessage()
     msg.set_subject(f"Grievance regarding a {item} - {town} Branch")
     msg["From"] = burner_address 
@@ -130,7 +135,6 @@ async def gregger(ctx):
     )
     msg.set_content(email_body)
 
-    # 3. Send out via SMTP
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(AUTH_EMAIL, AUTH_PASSWORD)
@@ -139,9 +143,7 @@ async def gregger(ctx):
         await ctx.send(f"❌ Failed to dispatch email: {e}")
         return
 
-    await ctx.send("⏳ Complaint sent successfully! I am now quietly monitoring the burner inbox in the background (giving Greggs up to **2 hours** to reply).")
-
-    # 4. Spin up the background watcher task so the bot stays fully responsive
+    await ctx.send("⏳ Complaint sent successfully! Monitoring burner inbox in background (giving Greggs up to **2 hours** to reply).")
     bot.loop.create_task(watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200))
 
 
@@ -150,4 +152,10 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: DISCORD_TOKEN is missing!")
     else:
+        # Start the Flask web server in a background thread so Render's port check passes
+        server_thread = threading.Thread(target=run_web_server)
+        server_thread.daemon = True
+        server_thread.start()
+
+        # Start the Discord bot on the main thread
         bot.run(TOKEN)
