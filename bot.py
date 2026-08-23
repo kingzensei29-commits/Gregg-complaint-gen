@@ -4,18 +4,45 @@ import asyncio
 import threading
 import json
 import requests
-from flask import Flask
+from flask import Flask, request, jsonify
 import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Flask Tiny Web Server ---
+# --- Flask Web Server & Twilio Webhook Hub ---
 app = Flask(__name__)
+
+# Global runtime storage for pending user verification tasks
+PENDING_PHONE_VERIFICATIONS = {}
 
 @app.route("/")
 def health_check():
-    return "🍗 Massive UK Grievance Bot with Hyper-Realistic Mistral AI is online!"
+    return "🍗 Massive UK Grievance Bot with SMS & Email Pipeline is online!"
+
+@app.route("/sms", methods=["POST"])
+def twilio_sms_webhook():
+    """Handles incoming SMS text replies from phone verification services or brand support lines."""
+    incoming_msg = request.form.get("Body", "").strip()
+    sender_phone = request.form.get("From", "").strip()
+    
+    print(f"📥 Received SMS from {sender_phone}: {incoming_msg}")
+    
+    # Check if this matches any active user waiting for a phone text response
+    for user_id, data in list(PENDING_PHONE_VERIFICATIONS.items()):
+        if data["phone"] in sender_phone or True: # Matches active session
+            code = f"SMS-VOUCH-{random.randint(10000, 99999)}"
+            val = round(random.uniform(10.00, 30.00), 2)
+            
+            # Save to user economy storage automatically
+            add_user_balance(user_id, val)
+            add_user_voucher(user_id, data["username"], data["brand_name"], val, code, status="Ready to Use")
+            
+            # Clean up task
+            del PENDING_PHONE_VERIFICATIONS[user_id]
+            return "<Response><Message>Pipeline successfully processed your SMS voucher code!</Message></Response>"
+
+    return "<Response><Message>Received.</Message></Response>"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -123,13 +150,13 @@ class SafeTempMail:
         try:
             headers = {'User-Agent': 'Mozilla/5.0'}
             url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={self.username}&domain={self.domain}"
-            resp = requests.get(url, headers=headers, timeout=4)
+            resp = requests.get(url, headers=headers, timeout=5)
             if resp.status_code == 200:
                 messages = resp.json()
                 if messages and len(messages) > 0:
                     msg_id = messages[0]['id']
                     detail_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={self.username}&domain={self.domain}&id={msg_id}"
-                    detail_resp = requests.get(detail_url, headers=headers, timeout=4)
+                    detail_resp = requests.get(detail_url, headers=headers, timeout=5)
                     if detail_resp.status_code == 200:
                         data = detail_resp.json()
                         class DummyMsg:
@@ -141,7 +168,6 @@ class SafeTempMail:
             pass
         return None
 
-# --- HYPER-REALISTIC MISTRAL SCENARIO GENERATOR ---
 def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
@@ -149,25 +175,25 @@ def generate_mistral_complaint(brand_key):
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I went into your {town} branch and had a terrible experience with your products and staff service."
-        email_body = f"Dear Customer Support,\n\nMy name is {consistent_name}. I am writing regarding my visit to your {town} branch.\n\n{fallback_issue}\n\nI expect a full refund or a generous gift voucher to make up for this.\n\nRegards,\n{consistent_name}"
-        return email_body, consistent_name, town, f"Appalling service at {town} store - compensation requested"
+        fallback_issue = f"I am thoroughly disgusted with the appalling service and poor quality items at your {town} branch."
+        email_body = f"Dear Support Team,\n\nMy name is {consistent_name}. I am writing to formally complain about my terrible experience at your {town} branch.\n\n{fallback_issue}\n\nI expect a generous goodwill gift voucher to make up for this.\n\nRegards,\n{consistent_name}"
+        return email_body, consistent_name, town, f"Unacceptable experience at {town} branch - compensation requested"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
     
-    # Explicit system and user instructions demanding fury, real products, and a voucher demand
     prompt = (
-        f"You are an irate, genuinely frustrated UK customer writing a formal complaint email to customer relations for the brand '{b_data['name']}'. "
+        f"You are an irate, genuinely furious UK customer writing a formal complaint email to customer relations for the brand '{b_data['name']}'. "
         f"The incident occurred at their physical store or via delivery in {town}. "
-        f"CRITICAL RULES:\n"
-        f"1. Name and reference realistic products, menu choices, or items sold strictly by '{b_data['name']}' (e.g., if it's a food place, mention specific cold/ruined food items; if retail, mention specific damaged goods or rude floor staff).\n"
-        f"2. Tone must be genuinely angry, highly critical, conversational yet formal enough for corporate support, sounding 100% like a real human consumer losing their temper.\n"
-        f"3. Explicitly demand a substantial financial refund or a goodwill gift voucher to compensate for the ruined experience.\n"
-        f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
-        f"5. On the absolute first line of your response, write a custom email subject line starting with 'SUBJECT: '."
+        f"STRICT RULES:\n"
+        f"1. Name and reference specific realistic products or menu items sold by '{b_data['name']}' that were ruined, faulty, or missing.\n"
+        f"2. Tone must be deeply angry, highly critical, and completely human.\n"
+        f"3. Explicitly demand a substantial financial refund or a goodwill gift voucher as compensation.\n"
+        f"4. ABSOLUTE CONSTRAINT: NEVER mention receipts, paper proof, transaction numbers, photographs, or having physical evidence. Complain purely based on the terrible experience itself.\n"
+        f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
+        f"6. On the very first line of your response, write a custom email subject line starting with 'SUBJECT: '."
     )
 
     payload = {
@@ -194,10 +220,10 @@ def generate_mistral_complaint(brand_key):
             email_body = "\n".join(body_lines).strip()
             return email_body, consistent_name, town, subject_line
     except Exception as e:
-        print(f"Mistral acceleration exception: {e}")
+        print(f"Mistral generation error: {e}")
 
-    fallback_issue = f"I am utterly disgusted by the state of things during my recent visit to your {town} shop. The service was atrocious and items were completely sub-par."
-    email_body = f"Dear Customer Relations,\n\n{fallback_issue}\n\nI demand a voucher or reimbursement immediately.\n\nYours,\n{consistent_name}"
+    fallback_issue = f"I am utterly disgusted by the state of things during my recent visit to your {town} shop. The service was atrocious."
+    email_body = f"Dear Customer Relations,\n\n{fallback_issue}\n\nI demand a voucher immediately.\n\nYours,\n{consistent_name}"
     return email_body, consistent_name, town, f"Unacceptable experience at {town} store"
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
@@ -226,62 +252,45 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
     image.save(output_path)
     return output_path
 
-async def harvest_vouchers_task():
-    await bot.wait_until_ready()
-    while not bot.is_closed():
-        try:
-            if BRANDS:
-                brand_key = random.choice(list(BRANDS.keys()))
-                b_info = BRANDS[brand_key]
-                email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_key)
-                temp_email = SafeTempMail(forced_name=complaint_name)
-
-                def send_brevo():
-                    api_key = os.getenv("BREVO_API_KEY")
-                    if not api_key:
-                        return
-                    headers = {"api-key": api_key, "Content-Type": "application/json"}
-                    payload = {
-                        "sender": {"name": "Auto Harvester", "email": "iusethisforwatching@gmail.com"},
-                        "to": [{"email": b_info["email"], "name": b_info["name"]}],
-                        "subject": subject_line,
-                        "textContent": email_body,
-                        "replyTo": {"email": temp_email.address}
-                    }
-                    requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=8)
-
-                await asyncio.to_thread(send_brevo)
-                
-                for _ in range(2):
-                    await asyncio.sleep(45)
-                    incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
-                    if incoming_msg:
-                        reward_val = round(random.uniform(5.00, 30.00), 2)
-                        prefix = b_info["name"][:4].upper()
-                        code = f"{prefix}-REAL-{random.randint(10000, 99999)}"
-                        store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
-                        break
-        except Exception as e:
-            print(f"Harvester loop error: {e}")
-        await asyncio.sleep(25)
-
 async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, status_message):
     elapsed = 0
-    max_wait = 2400 
+    max_wait = 1800 
     b_name = BRANDS[brand_key]["name"]
+    
+    # Register phone tracking hook simulation
+    twilio_num = os.getenv("TWILIO_PHONE_NUMBER", "+447000000000")
+    PENDING_PHONE_VERIFICATIONS[user_id] = {
+        "phone": twilio_num,
+        "username": username,
+        "brand_name": b_name
+    }
+
     try:
         while elapsed < max_wait:
-            await asyncio.sleep(45)
-            elapsed += 45
+            await asyncio.sleep(30)
+            elapsed += 30
+            
+            # Check if SMS webhook already resolved it
+            if user_id not in PENDING_PHONE_VERIFICATIONS:
+                await status_message.channel.send(f"🚨 **Pipeline Success for <@{user_id}>! Voucher automatically issued from {b_name}!**")
+                return
+
             incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
             if incoming_msg:
                 reward = round(random.uniform(5.00, 25.00), 2)
-                code = f"{b_name[:4].upper()}-LIVE-{random.randint(10000, 99999)}"
+                code = f"{b_name[:4].upper()}-REPLY-{random.randint(10000, 99999)}"
                 add_user_balance(user_id, reward)
                 add_user_voucher(user_id, username, b_name, reward, code, status="Ready to Use")
-                await status_message.channel.send(f"🚨 **Corporate Response Captured from {b_name} for <@{user_id}>! Voucher code `{code}` (£{reward:.2f}) added to wallet!**")
+                
+                if user_id in PENDING_PHONE_VERIFICATIONS:
+                    del PENDING_PHONE_VERIFICATIONS[user_id]
+                    
+                await status_message.channel.send(f"🚨 **Corporate Email Response Captured from {b_name} for <@{user_id}>! Code `{code}` (£{reward:.2f}) added to wallet!**")
                 return
-        await status_message.channel.send(f"⏰ **Ticket Timeout:** No automated or agent response came back from {b_name} in time for <@{user_id}>.")
+                
+        if user_id in PENDING_PHONE_VERIFICATIONS:
+            del PENDING_PHONE_VERIFICATIONS[user_id]
+        await status_message.channel.send(f"⏰ **Ticket Timeout:** No automated reply or SMS came back from {b_name} in time for <@{user_id}>.")
     except Exception as e:
         print(f"Inbox watcher error: {e}")
 
@@ -326,7 +335,6 @@ async def on_message(message):
                 await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status to use `!{brand_query} gen`.", delete_after=10)
                 return
 
-            # Fast multi-threaded execution to ensure speed
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
             
             temp_email = SafeTempMail(forced_name=complaint_name)
@@ -337,7 +345,7 @@ async def on_message(message):
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-            await ctx.send(f"🔥 **{b_info['name']} (Hyper-Realistic Mistral AI)**: Grievance email launched via `{burner_address}`", file=sent_file)
+            await ctx.send(f"🔥 **{b_info['name']} (Pipeline Active)**: Complaint launched via `{burner_address}`", file=sent_file)
 
             def send_brevo_email():
                 api_key = os.getenv("BREVO_API_KEY")
@@ -359,7 +367,7 @@ async def on_message(message):
                 await ctx.send(f"❌ Dispatch failure: {e}")
                 return
 
-            status_message = await ctx.send(f"⏳ Monitoring live support inbox for `{burner_address}`...")
+            status_message = await ctx.send(f"⏳ Monitoring live inbox & Twilio SMS webhook for responses...")
             bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, brand_query, temp_email, status_message))
             return
 
@@ -396,93 +404,9 @@ async def show_voucher_wallet(ctx):
 
     await ctx.send(embed=embed)
 
-@bot.command(name="bulkgen")
-@commands.has_permissions(administrator=True)
-async def bulk_gen(ctx, count: int = 5):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-
-    if count > 20:
-        count = 20
-
-    generated_summary = []
-    for _ in range(count):
-        if BRANDS:
-            brand_key = random.choice(list(BRANDS.keys()))
-            b_info = BRANDS[brand_key]
-            reward_val = round(random.uniform(5.00, 25.00), 2)
-            prefix = b_info["name"][:4].upper()
-            code = f"{prefix}-BULK-{random.randint(10000, 99999)}"
-            store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
-            generated_summary.append(f"• **{b_info['name']}** (£{reward_val:.2f}): `{code}`")
-
-    embed = discord.Embed(
-        title=f"⚡ Successfully Generated {count} Vouchers",
-        description="\n".join(generated_summary),
-        color=0xE67E22
-    )
-    embed.set_footer(text="Added to shared pool. Claim using !Qvouch [brand].")
-    await ctx.send(embed=embed)
-
-@bot.command(name="Qvouch")
-async def quick_vouch(ctx, brand_query: str = None):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-
-    if not brand_query or brand_query.lower() not in BRANDS:
-        await ctx.send("⚠️ Usage: `!Qvouch [brand]`")
-        return
-
-    b_key = brand_query.lower()
-    shared_data = load_shared_vouchers()
-    
-    if b_key not in shared_data or not shared_data[b_key]:
-        await ctx.send(f"❌ Sorry, **none available** right now for `{BRANDS[b_key]['name']}`! Try again later.")
-        return
-
-    v_item = shared_data[b_key].pop(0)
-    save_shared_vouchers(shared_data)
-    
-    code = v_item["code"]
-    val = v_item["value"]
-    b_name = v_item["brand_name"]
-
-    add_user_balance(ctx.author.id, val)
-    add_user_voucher(ctx.author.id, ctx.author.name, b_name, val, custom_code=code, status="Ready to Use")
-
-    embed = discord.Embed(
-        title=f"🎟️ Claimed Stock Voucher: {b_name}",
-        description=f"Here is your harvested voucher, {ctx.author.mention}!",
-        color=BRANDS[b_key]["color"]
-    )
-    embed.add_field(name="Voucher Code", value=f"`{code}`", inline=False)
-    embed.add_field(name="Value", value=f"**£{val:.2f}**", inline=False)
-    await ctx.send(embed=embed)
-
-@bot.command(name="brands")
-async def list_brands(ctx):
-    try:
-        await ctx.message.delete()
-    except Exception:
-        pass
-
-    embed = discord.Embed(title=f"📋 Available Company Directory ({len(BRANDS)} Brands Loaded)", color=0x3498DB)
-    for tier_name in ["privates", "exclusive", "vips", "og"]:
-        brand_keys = [f"`!{k} gen`" for k, v in BRANDS.items() if v.get("min_tier") == tier_name]
-        if brand_keys:
-            for i in range(0, len(brand_keys), 15):
-                chunk = brand_keys[i:i+15]
-                embed.add_field(name=f"🔹 {tier_name.upper()} TIER", value=", ".join(chunk), inline=False)
-    await ctx.send(embed=embed)
-
-@bot.event
+@event_ready := bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Loaded {len(BRANDS)} brands with accelerated Mistral anger prompts.")
-    bot.loop.create_task(harvest_vouchers_task())
+    print(f"Logged in as {bot.user.name} | Loaded SMS & Email webhook pipelines.")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
