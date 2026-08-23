@@ -325,7 +325,7 @@ async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, te
             
             await status_message.channel.send(
                 f"🚨 **{b_name} Support resolved your ticket for {ctx.author.mention}!**\n"
-                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` privately to view your unique voucher code.",
+                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` to check your unique voucher codes.",
                 file=file
             )
             return
@@ -419,7 +419,7 @@ async def redeem_vouchers(ctx, voucher_code: str = None):
     balance = user_data["balance"]
     vouchers = user_data["vouchers"]
 
-    # If a specific voucher code was provided, look it up and cash it out privately
+    # If a specific voucher code was provided, look it up and cash it out
     if voucher_code:
         target_voucher = None
         target_idx = -1
@@ -430,48 +430,40 @@ async def redeem_vouchers(ctx, voucher_code: str = None):
                 break
         
         if target_voucher:
-            # Remove voucher from inventory
             vouchers.pop(target_idx)
             save_economy(data)
             
-            await ctx.message.delete() # Clean up chat command for privacy
-            await ctx.author.send(
-                f"🎉 **Voucher Successfully Claimed!**\n"
+            await ctx.send(
+                f"🎉 {ctx.author.mention} **Successfully Redeemed Voucher!**\n"
                 f"🎁 **Item:** {target_voucher['name']}\n"
                 f"💵 **Value:** £{target_voucher['value']:.2f}\n"
-                f"🏷️ **Unique Barcode Code:** `{target_voucher['code']}`\n"
-                f"*(Show this barcode code at any counter! This code is bound exclusively to your account.)*"
+                f"🏷️ **Active Barcode Code:** `{target_voucher['code']}`\n"
+                f"*(Show this code at the counter. Bound exclusively to your account.)*"
             )
             return
         else:
             await ctx.send(f"❌ Error: Voucher code `{voucher_code}` was not found in your inventory or is invalid.", delete_after=10)
             return
 
-    # Otherwise, display the user's private list of unique codes ephemerally/privately via DM or ephemeral-style text
-    if not vouchers:
-        await ctx.author.send(
-            f"🛒 **Your Voucher Wallet:**\n"
+    # Otherwise, display the user's personal vouchers ephemerally (visible ONLY to them)
+    embed = discord.Embed(
+        title="🛒 Your Personal Voucher Wallet",
+        description=(
+            f"**Account Holder:** {ctx.author.mention}\n"
             f"**Total Balance:** `£{balance:.2f}`\n"
-            f"*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, or `!kfc gen`!*"
-        )
-        await ctx.message.delete()
-        return
-
-    voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f}) — Code: `{v['code']}`" for v in vouchers])
-    
-    await ctx.author.send(
-        f"🛒 **Your Personal Universal Voucher Centre**\n"
-        f"**Account Holder:** {ctx.author.name}\n"
-        f"**Total Balance:** `£{balance:.2f}`\n\n"
-        f"**Your Unique Vouchers:**\n{voucher_list_str}\n\n"
-        f"*(To cash one out and generate your final barcode, type `!redeem [CODE]` in the server channel)*"
+            f"**Saved Vouchers:** `{len(vouchers)}`\n\n"
+            f"*(To redeem a voucher and generate your scannable code, type `!redeem [VOUCHER_CODE]`)*"
+        ),
+        color=0x3498DB
     )
     
-    await ctx.message.delete()
-    try:
-        await ctx.send(f"📬 {ctx.author.mention}, I have sent your unique voucher wallet list privately via DM!", delete_after=10)
-    except Exception:
-        pass
+    if vouchers:
+        voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f})\n  ↳ Code: `{v['code']}`" for v in vouchers])
+        embed.add_field(name="🎁 Your Unique Vouchers", value=voucher_list_str, inline=False)
+    else:
+        embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, or `!kfc gen`!*", inline=False)
+
+    await ctx.reply(embed=embed, ephemeral=True)
 
 
 if __name__ == "__main__":
