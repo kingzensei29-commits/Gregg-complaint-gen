@@ -127,10 +127,19 @@ SIGN_OFFS = [
 
 
 class SafeTempMail:
+    """Generates clean, professional consumer-style email aliases."""
     def __init__(self):
-        self.domain = "1secmail.com"
-        letters = "abcdefghijklmnopqrstuvwxyz0123456789"
-        self.username = ''.join(random.choice(letters) for i in range(10))
+        clean_domains = ["gmail-inbox.com", "mail-box.net", "verify-user.com", "1secmail.org", "1secmail.com"]
+        
+        first_names = ["alex", "jamie", "sam", "chris", "jordan", "taylor", "casey", "morgan", "riley", "avery"]
+        last_names = ["smith", "jones", "taylor", "brown", "wilson", "davies", "evans", "thomas", "johnson", "roberts"]
+        
+        f_name = random.choice(first_names)
+        l_name = random.choice(last_names)
+        number = random.randint(1985, 2024)
+        
+        self.username = f"{f_name}.{l_name}{number}"
+        self.domain = random.choice(clean_domains)
         self.address = f"{self.username}@{self.domain}"
         
         try:
@@ -139,7 +148,7 @@ class SafeTempMail:
             if resp.status_code == 200:
                 domains = resp.json()
                 if domains:
-                    self.domain = random.choice(domains)
+                    self.domain = domains[0]
                     self.address = f"{self.username}@{self.domain}"
         except Exception:
             pass 
@@ -307,14 +316,14 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
             sender = incoming_msg.from_addr
             body = incoming_msg.body
             
-            # If they ask for app/phone details, auto-reply back using the burner email
+            # Auto-reply when Greggs requests app details or phone number
             if not auto_replied and ("voucher" in body.lower() or "app" in body.lower() or "number" in body.lower()):
                 success = send_auto_reply_to_company(sender, subject, burner_address, burner_address)
                 if success:
                     auto_replied = True
                     await status_message.channel.send(
-                        f"🤖 **Auto-Responder Triggered:** Greggs requested your app info/phone number! "
-                        f"The bot automatically replied using burner inbox `{burner_address}`. Waiting for final voucher credit..."
+                        f"🤖 **Auto-Responder Triggered:** Greggs requested your app details! "
+                        f"The bot automatically replied using burner inbox `{burner_address}`. Waiting for final voucher delivery..."
                     )
                 continue 
 
