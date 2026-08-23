@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Strict-On-Topic Chat & Verification Pipeline is online!"
+    return "🟢 Mistral Code-Brain & Free-Flow Chat Bot is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -167,8 +167,8 @@ def generate_mistral_complaint(brand_key):
 
     return f"Terrible service at {town}. I demand a voucher.", consistent_name, town, "Complaint"
 
-def ask_mistral_chatbot(user_query):
-    """Enforces strict platform guidelines, 99% accuracy on commands/features, and locks down the persona on-topic."""
+def ask_mistral_chatbot(user_query, author_name, author_id):
+    """Acts as a free-flowing chat persona while plugged directly into the database code brain for real-time live data updates."""
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         return "Mistral API key is missing."
@@ -178,16 +178,28 @@ def ask_mistral_chatbot(user_query):
         "Content-Type": "application/json"
     }
     
-    supported_brands_list = ", ".join(BRANDS.keys()) if BRANDS else "configured brands"
+    # Pull live runtime database metrics for the code-brain context
+    active_data = load_active_users()
+    economy_data = load_economy()
     
+    user_uid = str(author_id)
+    user_active_count = active_data.get(user_uid, 0)
+    user_vouchers_count = len(economy_data.get(user_uid, {}).get("vouchers", []))
+    total_active_sessions_global = sum(active_data.values())
+    
+    supported_brands_list = ", ".join(BRANDS.keys()) if BRANDS else "none configured"
+
     system_prompt = (
-        f"You are the official support and assistant bot for a Discord automated consumer grievance and verification platform. "
-        f"STRICT DIRECTIVES:\n"
-        f"1. STAY ON TOPIC: You only discuss platform mechanics, complaint generators, brand verification pipelines, wallet ledgers, and concurrent limits (50 max slots).\n"
-        f"2. ACCURACY: Provide 99% factual answers based solely on these system commands: `![brand] gen` to trigger a complaint pipeline, and `!voucher` (or `!wallet`) to check saved vouchers.\n"
-        f"3. Available brands config keys: [{supported_brands_list}].\n"
-        f"4. If users ask about anything off-topic, politely redirect them back to using the grievance platform.\n"
-        f"5. Keep answers concise, factual, and helpful."
+        f"You are an intelligent, witty, and free-flowing AI companion and code-brain supervisor running inside a Discord server for automated consumer grievances and voucher verification pipelines.\n"
+        f"You can talk naturally, crack jokes, and converse freely about anything, but you also have direct access to system telemetry.\n"
+        f"CURRENT REAL-TIME SYSTEM TELEMETRY (CODE BRAIN STATUS):\n"
+        f"- Talking User: {author_name} (ID: {author_id})\n"
+        f"- This User's Active Pipelines: {user_active_count} / 50 max slots\n"
+        f"- This User's Saved Vouchers: {user_vouchers_count}\n"
+        f"- Total Global Active Sessions across server: {total_active_sessions_global}\n"
+        f"- Configured Brand Keys: [{supported_brands_list}]\n"
+        f"- Available Commands: `![brand] gen` (launches complaint & verification pipeline) and `!voucher` (checks wallet).\n"
+        f"Use this telemetry data intelligently if users ask for status updates, stats, or how their setup is performing!"
     )
 
     payload = {
@@ -196,8 +208,8 @@ def ask_mistral_chatbot(user_query):
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_query}
         ],
-        "temperature": 0.2,
-        "max_tokens": 200
+        "temperature": 0.7,
+        "max_tokens": 250
     }
 
     try:
@@ -207,7 +219,7 @@ def ask_mistral_chatbot(user_query):
     except Exception:
         pass
     
-    return "I am currently unable to process your request."
+    return "My neural network hiccuped for a second, ask me again!"
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
@@ -378,10 +390,10 @@ async def on_message(message):
             bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj))
             return
 
-    # 2. Allow open public server chat: Responds automatically to standard chat messages without requiring manual replies or mentions
+    # 2. Free-flowing Chat with Code-Brain Integration (Responds to open chat without needing mentions, feeds on database stats)
     if not content.startswith("!"):
         async with message.channel.typing():
-            ai_reply = await asyncio.to_thread(ask_mistral_chatbot, content)
+            ai_reply = await asyncio.to_thread(ask_mistral_chatbot, content, message.author.name, message.author.id)
             await message.reply(ai_reply)
         return
 
@@ -416,7 +428,7 @@ async def show_voucher_wallet(ctx):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Strict-On-Topic Chat Bot online.")
+    print(f"Logged in as {bot.user.name} | Code-Brain & Free-Flow Chat online.")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
