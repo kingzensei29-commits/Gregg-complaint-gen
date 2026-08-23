@@ -15,7 +15,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🍗 Massive UK Grievance Bot is online and operational!"
+    return "🍗 Massive UK Grievance Bot with Mistral AI is online and operational!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -107,19 +107,6 @@ ROLE_IDS = {
     "members": 1541122505899774113
 }
 
-ANGRY_OPENINGS = [
-    "To say I am absolutely fuming is an understatement. I demand an immediate explanation.",
-    "I am writing this email while still shaking with absolute rage over what I experienced today.",
-    "This is completely unacceptable. Your standards have dropped off a cliff and I want answers."
-]
-
-ANGRY_CLOSINGS = [
-    "I expect a full refund and substantial compensation vouchers sent to my email immediately.",
-    "Sort your operations out before someone gets ill. Expecting prompt compensation."
-]
-
-SIGN_OFFS = ["Furious regards,", "Disgusted,", "Extremely unsatisfied,"]
-
 class SafeTempMail:
     def __init__(self, forced_name=None):
         clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
@@ -156,34 +143,62 @@ class SafeTempMail:
             pass
         return None
 
-def generate_angry_complaint(brand_key):
+# --- MISTRAL API DYNAMIC SCENARIO GENERATOR ---
+def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
     consistent_name = fake.name()
-    core_issue = b_data["complaint_template"].format(town=town)
     
-    if brand_key in ["apple", "samsung"]:
-        email_body = (
-            f"Hello Customer Support Team,\n\n"
-            f"Customer Details: {consistent_name}\n"
-            f"Location / Store Interest: {b_data['name']} Store, {town}\n\n"
-            f"{core_issue}\n\n"
-            f"Looking forward to hearing back with any available discount options.\n\n"
-            f"Best regards,\n{consistent_name}"
-        )
-    else:
-        opening = random.choice(ANGRY_OPENINGS)
-        closing = random.choice(ANGRY_CLOSINGS)
-        signoff = random.choice(SIGN_OFFS)
-        email_body = (
-            f"{opening}\n\n"
-            f"Complainant Details: {consistent_name}\n"
-            f"Branch Location: {b_data['name']}, High Street, {town}\n\n"
-            f"{core_issue}\n\n"
-            f"{closing}\n\n"
-            f"{signoff}\n{consistent_name}"
-        )
-    return email_body, consistent_name, town
+    api_key = os.getenv("MISTRAL_API_KEY")
+    
+    # Fallback generator if Mistral API key is not supplied
+    if not api_key:
+        fallback_issue = b_data.get("complaint_template", "Service was poor and unsatisfactory at your branch.").format(town=town)
+        email_body = f"Hello Customer Support,\n\nComplainant: {consistent_name}\nBranch: {b_data['name']}, {town}\n\n{fallback_issue}\n\nRegards,\n{consistent_name}"
+        return email_body, consistent_name, town, f"Formal complaint regarding experience at {town} branch"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = (
+        f"Write a realistic, highly frustrated UK consumer complaint email addressed to customer support for the brand '{b_data['name']}'. "
+        f"The complaint took place at their branch in {town}. "
+        f"Include a realistic issue fitting for this type of business (e.g., bad product quality, terrible service, ruined item, or delivery failure). "
+        f"Sign off using the name '{consistent_name}'. Keep it professional yet furious, suitable to send to corporate support. "
+        f"Also provide a relevant subject line on the very first line starting with 'SUBJECT: '."
+    )
+
+    payload = {
+        "model": "mistral-small-latest",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.9
+    }
+
+    try:
+        response = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=15)
+        if response.status_code == 200:
+            result_json = response.json()
+            content = result_json["choices"][0]["message"]["content"].strip()
+            
+            lines = content.splitlines()
+            subject_line = f"Formal Complaint regarding service at {town}"
+            body_lines = lines
+            
+            if lines and lines[0].lower().startswith("subject:"):
+                subject_line = lines[0].split(":", 1)[1].strip()
+                body_lines = lines[1:]
+                
+            email_body = "\n".join(body_lines).strip()
+            return email_body, consistent_name, town, subject_line
+    except Exception as e:
+        print(f"Mistral API error, falling back: {e}")
+
+    # Fallback execution if API fails
+    fallback_issue = f"I am writing to express my absolute dissatisfaction with my recent experience at your {town} location."
+    email_body = f"Dear Customer Support,\n\n{fallback_issue}\n\nRegards,\n{consistent_name}"
+    return email_body, consistent_name, town, f"Complaint regarding {b_data['name']} {town}"
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
@@ -199,7 +214,7 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
         font_body = ImageFont.load_default()
 
     draw.rectangle([(0, 0), (width, 70)], fill=brand_color)
-    draw.text((20, 20), "📤 Official Verified Grievance Dispatched", fill="white", font=font_title)
+    draw.text((20, 20), "📤 Official Verified Grievance Dispatched (Mistral AI)", fill="white", font=font_title)
     content_text = f"From: {sender}\nTo: {recipient}\nSubject: {subject}\n" + "-" * 65 + f"\n\n{body}"
     
     y_text = 85
@@ -218,9 +233,8 @@ async def harvest_vouchers_task():
             if BRANDS:
                 brand_key = random.choice(list(BRANDS.keys()))
                 b_info = BRANDS[brand_key]
-                email_body, complaint_name, town = generate_angry_complaint(brand_key)
+                email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_key)
                 temp_email = SafeTempMail(forced_name=complaint_name)
-                subject_line = f"Inquiry & Formal Request regarding service at {town} branch"
 
                 def send_brevo():
                     api_key = os.getenv("BREVO_API_KEY")
@@ -313,17 +327,18 @@ async def on_message(message):
                 await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status to use `!{brand_query} gen`.", delete_after=10)
                 return
 
-            email_body, complaint_name, town = generate_angry_complaint(brand_query)
+            # Consult Mistral API to generate unique scenario
+            email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
+            
             temp_email = SafeTempMail(forced_name=complaint_name)
             burner_address = temp_email.address
-            subject_line = f"Formal Inquiry & Complaint regarding service at {town} branch"
 
             add_user_voucher(ctx.author.id, ctx.author.name, b_info["name"], 0.00, f"PENDING-{random.randint(1000,9999)}", status="Pending / Processing")
 
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-            await ctx.send(f"🔥 **{b_info['name']}**: Ticket sent via `{burner_address}` (Logged as Pending in your `!voucher` ledger)", file=sent_file)
+            await ctx.send(f"🔥 **{b_info['name']} (Mistral AI Generated)**: Ticket sent via `{burner_address}`", file=sent_file)
 
             def send_brevo_email():
                 api_key = os.getenv("BREVO_API_KEY")
@@ -363,7 +378,7 @@ async def show_voucher_wallet(ctx):
     uid = str(ctx.author.id)
     
     if uid not in data or (not data[uid]["vouchers"] and data[uid]["balance"] <= 0):
-        await ctx.send(f"📦 {ctx.author.mention}, your account ledger is empty! File a complaint using `![brand] gen` or pull stock with `!Qvouch [brand]`.")
+        await ctx.send(f"📦 {ctx.author.mention}, your account ledger is empty! File a complaint using `![brand] gen`.")
         return
 
     balance = data[uid].get("balance", 0.0)
@@ -468,7 +483,7 @@ async def list_brands(ctx):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Loaded {len(BRANDS)} brands successfully.")
+    print(f"Logged in as {bot.user.name} | Loaded {len(BRANDS)} brands successfully with Mistral AI integration.")
     bot.loop.create_task(harvest_vouchers_task())
 
 if __name__ == "__main__":
