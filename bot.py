@@ -5,71 +5,19 @@ import threading
 import json
 import re
 import requests
-from flask import Flask, request, jsonify
+from io import BytesIO
+from flask import Flask
 import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Flask Web Server & Brevo Inbound Webhook Hub ---
+# --- Flask Web Server ---
 app = Flask(__name__)
-
-# Active tracker to match incoming emails to discord users
-ACTIVE_DISCORD_USERS = {}
 
 @app.route("/")
 def health_check():
-    return "🍗 Brevo Inbound Pipeline Bot is online and listening!"
-
-@app.route("/brevo-inbound", methods=["POST"])
-def brevo_inbound_webhook():
-    """Catches inbound email replies forwarded by Brevo and auto-extracts vouchers."""
-    try:
-        data = request.json or request.form
-        print(f"📥 Brevo Inbound Webhook Triggered: {data}")
-
-        # Extract email fields sent by Brevo's parsing engine
-        sender_email = data.get("from", {}).get("email", "") or data.get("sender", "")
-        body_content = data.get("textBody", "") or data.get("body", "") or data.get("stripped-text", "")
-        subject_line = data.get("subject", "")
-
-        # Look for a user session matching this email or parse codes natively
-        target_user_id = None
-        brand_matched = "Corporate Support"
-
-        for uid, session in list(ACTIVE_DISCORD_USERS.items()):
-            if session["email"].lower() in sender_email.lower() or session["email"].lower() in body_content.lower():
-                target_user_id = uid
-                brand_matched = session["brand_name"]
-                break
-
-        # Fallback to the most recent user if direct match fails but traffic is active
-        if not target_user_id and ACTIVE_DISCORD_USERS:
-            target_user_id, session = list(ACTIVE_DISCORD_USERS.items())[0]
-            brand_matched = session["brand_name"]
-
-        if target_user_id:
-            # Search text content for standard voucher patterns (e.g., alphanumeric codes or monetary values)
-            code_match = re.search(r'\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}|[A-Z0-9]{8,12})\b', body_content)
-            extracted_code = code_match.group(1) if code_match else f"{brand_matched[:4].upper()}-REPLY-{random.randint(1000,9999)}"
-            
-            val = round(random.uniform(5.00, 25.00), 2)
-            
-            # Save to unified storage
-            add_user_balance(target_user_id, val)
-            add_user_voucher(target_user_id, ACTIVE_DISCORD_USERS[target_user_id]["username"], brand_matched, val, extracted_code, status="Ready to Use")
-            
-            print(f"✅ Successfully extracted voucher for user {target_user_id}: {extracted_code}")
-            
-            # Clean up active session
-            del ACTIVE_DISCORD_USERS[target_user_id]
-            return jsonify({"status": "success", "processed": True}), 200
-
-        return jsonify({"status": "ignored", "reason": "No matching active user session"}), 200
-
-    except Exception as e:
-        print(f"Webhook parsing error: {e}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+    return "🟢 Mistral Interactive Chat & Verification Pipeline is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -82,7 +30,7 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 ECONOMY_FILE = "user_economy.json"
-SHARED_VOUCHERS_FILE = "shared_vouchers.json"
+ACTIVE_USERS_FILE = "active_users.json"
 BRANDS_FILE = "brands.json"
 
 def load_json_file(filename, default_val=None):
@@ -111,22 +59,13 @@ def load_economy():
 def save_economy(data):
     save_json_file(ECONOMY_FILE, data)
 
-def load_shared_vouchers():
-    return load_json_file(SHARED_VOUCHERS_FILE, {})
+def load_active_users():
+    return load_json_file(ACTIVE_USERS_FILE, {})
 
-def save_shared_vouchers(data):
-    save_json_file(SHARED_VOUCHERS_FILE, data)
+def save_active_users(data):
+    save_json_file(ACTIVE_USERS_FILE, data)
 
-def add_user_balance(user_id, amount):
-    data = load_economy()
-    uid = str(user_id)
-    if uid not in data:
-        data[uid] = {"balance": 0.0, "vouchers": []}
-    data[uid]["balance"] += float(amount)
-    save_economy(data)
-    return data[uid]["balance"]
-
-def add_user_voucher(user_id, username, brand_name, value, custom_code, status="Ready to Use"):
+def add_user_voucher(user_id, username, brand_name, value, custom_code):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
@@ -136,9 +75,45 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code, status="
         "code": custom_code,
         "name": f"{brand_name} Voucher",
         "value": value,
-        "status": status
+        "status": "Verified & Ready"
     })
     save_economy(data)
+
+class DynamicBurnerMailbox:
+    def __init__(self, forced_name=None):
+        clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
+        if forced_name:
+            parts = forced_name.lower().split()
+            if len(parts) >= 2:
+                self.username = f"{parts[0]}.{parts[1]}{random.randint(10, 99)}"
+            else:
+                self.username = f"{parts[0]}{random.randint(100, 999)}"
+        else:
+            self.username = f"user.claim.{random.randint(10000, 99999)}"
+        self.domain = random.choice(clean_domains)
+        self.address = f"{self.username}@{self.domain}"
+
+    def check_inbox_and_attachments(self):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0'}
+            url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={self.username}&domain={self.domain}"
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                messages = resp.json()
+                if messages and len(messages) > 0:
+                    msg_id = messages[0]['id']
+                    detail_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={self.username}&domain={self.domain}&id={msg_id}"
+                    detail_resp = requests.get(detail_url, headers=headers, timeout=5)
+                    if detail_resp.status_code == 200:
+                        data = detail_resp.json()
+                        class ParsedMail:
+                            subject = data.get('subject', 'No Subject')
+                            body = data.get('textBody', data.get('body', ''))
+                            attachments = data.get('attachments', [])
+                        return ParsedMail()
+        except Exception:
+            pass
+        return None
 
 def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
@@ -192,6 +167,38 @@ def generate_mistral_complaint(brand_key):
 
     return f"Terrible service at {town}. I demand a voucher.", consistent_name, town, "Complaint"
 
+def ask_mistral_chatbot(user_query):
+    """Allows Mistral to talk dynamically with users in the public server channels."""
+    api_key = os.getenv("MISTRAL_API_KEY")
+    if not api_key:
+        return "Mistral API key is missing, so I cannot chat right now!"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+    
+    prompt = (
+        f"You are a helpful, witty, and savvy Discord assistant bot managing a consumer grievance and verification platform. "
+        f"Keep your responses concise, engaging, and relevant. User query: {user_query}"
+    )
+
+    payload = {
+        "model": "mistral-small-latest",
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": 0.7,
+        "max_tokens": 200
+    }
+
+    try:
+        response = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=8)
+        if response.status_code == 200:
+            return response.json()["choices"][0]["message"]["content"].strip()
+    except Exception:
+        pass
+    
+    return "I'm having trouble connecting to my neural network right now!"
+
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
         brand_color = f"#{brand_color:06x}"
@@ -206,7 +213,7 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
         font_body = ImageFont.load_default()
 
     draw.rectangle([(0, 0), (width, 70)], fill=brand_color)
-    draw.text((20, 20), "📤 Brevo Pipeline Dispatched Complaint", fill="white", font=font_title)
+    draw.text((20, 20), "Official Verified Grievance Dispatched", fill="white", font=font_title)
     content_text = f"From: {sender}\nTo: {recipient}\nSubject: {subject}\n" + "-" * 68 + f"\n\n{body}"
     
     y_text = 85
@@ -218,66 +225,156 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
     image.save(output_path)
     return output_path
 
+def handle_human_verification_check(email_body):
+    triggers = ["verify your identity", "security check", "sms code", "phone verification", "confirm your number", "captcha"]
+    lowered = email_body.lower()
+    for t in triggers:
+        if t in lowered:
+            return True
+    return False
+
+async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj):
+    elapsed = 0
+    max_wait = 1200
+    try:
+        while elapsed < max_wait:
+            await asyncio.sleep(35)
+            elapsed += 35
+            
+            incoming = await asyncio.to_thread(burner_obj.check_inbox_and_attachments)
+            if incoming:
+                if handle_human_verification_check(incoming.body):
+                    await asyncio.sleep(5) 
+                    continue
+
+                code_match = re.search(r'\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}|[A-Z0-9]{8,12})\b', incoming.body)
+                
+                if code_match or incoming.attachments:
+                    extracted_code = code_match.group(1) if code_match else f"{brand_name[:4].upper()}-VERIFIED-{random.randint(1000,9999)}"
+                    val = round(random.uniform(5.00, 25.00), 2)
+                    
+                    add_user_voucher(user_id, username, brand_name, val, extracted_code)
+                    
+                    user = await bot.fetch_user(int(user_id))
+                    if user:
+                        dm_text = (
+                            f"🛡️ **Identity Verification & Voucher Secured!**\n"
+                            f"Brand: **{brand_name}**\n"
+                            f"Voucher Code: `{extracted_code}` (Value: **£{val:.2f}**)"
+                        )
+                        
+                        if incoming.attachments:
+                            for att in incoming.attachments:
+                                att_name = att.get("filename", "voucher_barcode.png")
+                                att_url = f"https://www.1secmail.com/api/v1/?action=download&login={burner_obj.username}&domain={burner_obj.domain}&id={att.get('id')}"
+                                img_resp = requests.get(att_url)
+                                if img_resp.status_code == 200:
+                                    img_file = discord.File(BytesIO(img_resp.content), filename=att_name)
+                                    await user.send(dm_text, file=img_file)
+                                    break
+                        else:
+                            await user.send(dm_text)
+                    break
+    finally:
+        active_users = load_active_users()
+        uid_str = str(user_id)
+        if uid_str in active_users and active_users[uid_str] > 0:
+            active_users[uid_str] -= 1
+            if active_users[uid_str] <= 0:
+                del active_users[uid_str]
+            save_active_users(active_users)
+
 @bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    content = message.content.strip().lower()
+    content = message.content.strip()
+    content_lower = content.lower()
     
-    if content.startswith("!") and content.endswith(" gen"):
-        brand_query = content[1:-4].strip()
+    # 1. Handle Generator Command
+    if content_lower.startswith("!") and content_lower.endswith(" gen"):
+        brand_query = content_lower[1:-4].strip()
         
         if brand_query in BRANDS:
             ctx = await bot.get_context(message)
+            uid_str = str(ctx.author.id)
+            
+            active_users = load_active_users()
+            current_active = active_users.get(uid_str, 0)
+            
+            if current_active >= 50:
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                await ctx.send(f"⏳ {ctx.author.mention}, you have reached your limit of **50 active pipelines**!", delete_after=10)
+                return
+
             try:
                 await message.delete()
             except Exception:
                 pass
 
+            active_users[uid_str] = current_active + 1
+            save_active_users(active_users)
+
             b_info = BRANDS[brand_query]
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
             
-            # Generate a clean custom tracking tag or reply address for Brevo tracking
-            unique_tag = f"user-{ctx.author.id}-{random.randint(100,999)}"
-            reply_address = os.getenv("BREVO_SENDER_EMAIL", "iusethisforwatching@gmail.com")
+            burner_obj = DynamicBurnerMailbox(forced_name=complaint_name)
+            burner_address = burner_obj.address
 
-            # Track user session for inbound routing
-            ACTIVE_DISCORD_USERS[str(ctx.author.id)] = {
-                "email": reply_address,
-                "username": ctx.author.name,
-                "brand_name": b_info["name"]
-            }
-
-            add_user_voucher(ctx.author.id, ctx.author.name, b_info["name"], 0.00, f"PENDING-{random.randint(1000,9999)}", status="Pending / Processing")
-
-            sent_img_path = create_email_image(reply_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
+            sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-            await ctx.send(f"🔥 **{b_info['name']} (Brevo Hub Active)**: Complaint dispatched successfully.", file=sent_file)
+            email_client_layout = (
+                f"🛡️ **{b_info['name']}**: Pipeline active ({active_users[uid_str]}/50 slots)\n"
+                f"> **From:** `{burner_address}`\n"
+                f"> **To:** `{b_info['email']}`\n"
+                f"> **Subject:** `{subject_line}`\n"
+                f"> ----------------------------------------\n"
+                f"> *{email_body[:300]}...*"
+            )
 
-            def send_brevo_email():
-                api_key = os.getenv("BREVO_API_KEY")
+            await message.channel.send(email_client_layout, file=sent_file)
+
+            def send_resend_email():
+                api_key = os.getenv("RESEND_API_KEY")
                 if not api_key:
-                    raise Exception("BREVO_API_KEY is missing.")
-                headers = {"api-key": api_key, "Content-Type": "application/json"}
+                    raise Exception("RESEND_API_KEY is missing.")
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
                 payload = {
-                    "sender": {"name": "Consumer Grievances", "email": reply_address},
-                    "to": [{"email": b_info["email"], "name": b_info["name"]}],
+                    "from": "Grievance Mailer <onboarding@resend.dev>",
+                    "to": [b_info["email"]],
                     "subject": subject_line,
-                    "textContent": email_body,
-                    "replyTo": {"email": reply_address},
-                    "tags": [unique_tag]
+                    "text": email_body,
+                    "reply_to": burner_address
                 }
-                requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=8)
+                requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=8)
 
             try:
-                await asyncio.to_thread(send_brevo_email)
+                await asyncio.to_thread(send_resend_email)
             except Exception as e:
-                await ctx.send(f"❌ Dispatch failure: {e}")
+                active_users = load_active_users()
+                if uid_str in active_users:
+                    active_users[uid_str] -= 1
+                    if active_users[uid_str] <= 0:
+                        del active_users[uid_str]
+                    save_active_users(active_users)
+                await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
 
-            await ctx.send(f"⏳ **Pipeline Armed:** Waiting for Brevo webhook to catch customer service reply...")
+            bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj))
+            return
+
+    # 2. Allow users to talk/chat directly with Mistral in the server (mentioning the bot or replying to it)
+    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
+        clean_prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
+        if clean_prompt:
+            async with message.channel.typing():
+                ai_reply = await asyncio.to_thread(ask_mistral_chatbot, clean_prompt)
+                await message.reply(ai_reply)
             return
 
     await bot.process_commands(message)
@@ -292,30 +389,26 @@ async def show_voucher_wallet(ctx):
     data = load_economy()
     uid = str(ctx.author.id)
     
-    if uid not in data or (not data[uid]["vouchers"] and data[uid]["balance"] <= 0):
-        await ctx.send(f"📦 {ctx.author.mention}, your wallet ledger is empty! File a complaint using `![brand] gen`.")
+    if uid not in data or not data[uid]["vouchers"]:
+        await ctx.send(f"📦 {ctx.author.mention}, your wallet ledger is empty!")
         return
 
-    balance = data[uid].get("balance", 0.0)
-    vouchers = data[uid].get("vouchers", [])
+    vouchers = data[uid]["vouchers"]
 
     embed = discord.Embed(
-        title=f"💳 {ctx.author.name}'s Unified Voucher & Wallet Ledger",
-        description=f"Total Virtual Balance: **£{balance:.2f}**",
+        title=f"💳 {ctx.author.name}'s Voucher Wallet",
         color=0x3498DB
     )
 
     for i, v in enumerate(vouchers, 1):
-        status = v.get("status", "Ready to Use")
-        status_icon = "🟢 **Ready to Use**" if status == "Ready to Use" else "⏳ **Pending / Processing**"
-        field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: {status_icon}"
-        embed.add_field(name=f"Request #{i}: {v['name']}", value=field_value, inline=False)
+        field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: 🟢 **Verified & Ready**"
+        embed.add_field(name=f"Voucher #{i}: {v['name']}", value=field_value, inline=False)
 
     await ctx.send(embed=embed)
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Brevo Inbound Webhook Pipeline running.")
+    print(f"Logged in as {bot.user.name} | Mistral Chat & Verification Pipeline online.")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
