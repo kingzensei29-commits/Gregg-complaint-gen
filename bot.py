@@ -70,7 +70,8 @@ def add_user_voucher(user_id, voucher_name, value):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
-        data[uid] = {"balance": 0.0, "vouchers": []}
+        data[uid]["balance"] = 0.0
+        data[uid]["vouchers"] = []
     data[uid]["vouchers"].append({"name": voucher_name, "value": value})
     save_economy(data)
 
@@ -139,7 +140,7 @@ ANGRY_OPENINGS = [
 ANGRY_CLOSINGS = [
     "I expect a full refund and substantial compensation vouchers sent to my email immediately.",
     "Sort your operations out before someone gets ill. Expecting prompt compensation.",
-    "I have photographic evidence of this disaster. Let me know how you intend to fix this."
+    "Let me know how you intend to rectify this situation as soon as possible."
 ]
 
 SIGN_OFFS = ["Furious regards,", "Disgusted,", "Extremely unsatisfied,", "Waiting for a reply,"]
