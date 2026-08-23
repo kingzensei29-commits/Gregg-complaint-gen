@@ -290,9 +290,10 @@ def send_auto_reply_to_company(recipient_email, original_subject, burner_address
         return False
 
 
-async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_message, burner_address, max_wait_seconds=7200):
+async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_message, burner_address, max_wait_seconds=259200):
+    # Set to 72 hours (3 days) to realistically match Greggs customer service response times
     elapsed = 0
-    check_interval = 30 
+    check_interval = 300  # Check every 5 minutes during the multi-day wait
     auto_replied = False
 
     while elapsed < max_wait_seconds:
@@ -304,10 +305,11 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
         
         try:
             hours_left = round((max_wait_seconds - elapsed) / 3600, 1)
+            days_left = round(hours_left / 24, 1)
             await status_message.edit(content=
                 f"✉️ **Burner inbox:** `{burner_address}`\n"
-                f"⏳ **Status:** Monitoring branch verification system... *(Greggs normally takes 1-3 days, stay prepped)*\n"
-                f"📊 **Progress Window:** `(~{hours_left}h remaining)`\n"
+                f"⏳ **Status:** Monitoring branch verification system... *(Greggs normally takes 1-3 days to respond)*\n"
+                f"📊 **Progress Window:** `(~{days_left} days remaining)`\n"
                 f"{emoji_bar_str}"
             )
         except Exception:
@@ -338,7 +340,7 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
             
             await status_message.channel.send(
                 f"🚨 **Voucher loaded successfully by Greggs support!**\n"
-                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` has been added to your account! Type `!voucher` to view and redeem.",
+                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` has been added to your account! Type `!redeem` to claim your barcode.",
                 file=file
             )
             return
@@ -347,8 +349,8 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
     add_user_balance(user_id, fallback_reward)
     add_user_voucher(user_id, "Greggs Priority Resolution Voucher", fallback_reward)
     await status_message.channel.send(
-        f"⏰ **Branch Log Verified:** Greggs automated ticket processed for `{burner_address}`.\n"
-        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` has been deposited into your money balance! Type `!voucher` to check your wallet."
+        f"⏰ **Branch Log Verified:** Greggs automated ticket window expired for `{burner_address}`.\n"
+        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` has been deposited into your money balance! Type `!redeem` to view your vouchers."
     )
 
 
@@ -436,18 +438,20 @@ async def greg(ctx, action: str = None):
         initial_emoji_bar = build_emoji_progress_bar(0)
         status_message = await ctx.send(
             f"✉️ **Burner inbox:** `{burner_address}`\n"
-            f"⏳ **Status:** Ticket filed. *(Note: Greggs normally takes 1-3 days to respond, stay prepped)*\n"
-            f"📊 **Progress Window:** `(~2.0h remaining)`\n"
+            f"⏳ **Status:** Ticket filed. *(Greggs normally takes 1-3 days to respond)*\n"
+            f"📊 **Progress Window:** `(~3.0 days remaining)`\n"
             f"{initial_emoji_bar}"
         )
 
-        bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, temp_email, status_message, burner_address, max_wait_seconds=7200))
+        # 259200 seconds = 72 hours (3 full days) response timer window
+        bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, temp_email, status_message, burner_address, max_wait_seconds=259200))
     else:
-        await ctx.send("⚠️ Usage: Type `!greg gen` to send an angry verified complaint, or `!voucher` to check your wallet.")
+        await ctx.send("⚠️ Usage: Type `!greg gen` to file a complaint, or `!redeem` to check and claim your saved vouchers.")
 
 
 @bot.command(name="voucher")
-async def voucher(ctx):
+@bot.command(name="redeem")
+async def redeem_vouchers(ctx):
     data = load_economy()
     uid = str(ctx.author.id)
     user_data = data.get(uid, {"balance": 0.0, "vouchers": []})
@@ -456,23 +460,23 @@ async def voucher(ctx):
     vouchers = user_data["vouchers"]
     
     embed = discord.Embed(
-        title="🥧 Greggs Grievance & Voucher Wallet",
+        title="🥧 Greggs Voucher Redemption Centre",
         description=(
             f"**Account Holder:** {ctx.author.mention}\n"
             f"**Total Compensation Balance:** `£{balance:.2f}`\n"
-            f"**Available Vouchers:** `{len(vouchers)}`\n\n"
-            f"⏱️ *Reminder: Greggs customer support normally takes 1–3 days to process feedback tickets and issue compensation.*"
+            f"**Saved Vouchers Available:** `{len(vouchers)}`\n\n"
+            f"*(Select a voucher below to generate your barcode code for the counter)*"
         ),
         color=0xF26522
     )
     
     if vouchers:
         voucher_list_str = "\n".join([f"• **{v['name']}** (Valued at £{v['value']:.2f})" for v in vouchers[:10]])
-        embed.add_field(name="🎁 Unclaimed Vouchers", value=voucher_list_str, inline=False)
+        embed.add_field(name="🎁 Ready to Redeem", value=voucher_list_str, inline=False)
         view = VoucherRedeemView(vouchers)
         await ctx.send(embed=embed, view=view)
     else:
-        embed.add_field(name="🎁 Unclaimed Vouchers", value="*No active vouchers. Type `!greg gen` to file a complaint and earn compensation!*", inline=False)
+        embed.add_field(name="🎁 Ready to Redeem", value="*You have no saved vouchers waiting. Type `!greg gen` to file a complaint and earn compensation!*", inline=False)
         await ctx.send(embed=embed)
 
 
