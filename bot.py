@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Code-Brain & Free-Flow Chat Bot is online!"
+    return "🟢 Mistral Persistent Pipeline Code-Brain is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -31,6 +31,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 ECONOMY_FILE = "user_economy.json"
 ACTIVE_USERS_FILE = "active_users.json"
+USAGE_STATS_FILE = "user_usage_stats.json"
+BURNER_REGISTRY_FILE = "burner_registry.json"
+PERSISTENT_PIPELINES_FILE = "persistent_pipelines.json"
 BRANDS_FILE = "brands.json"
 
 def load_json_file(filename, default_val=None):
@@ -65,6 +68,76 @@ def load_active_users():
 def save_active_users(data):
     save_json_file(ACTIVE_USERS_FILE, data)
 
+def load_usage_stats():
+    return load_json_file(USAGE_STATS_FILE, {})
+
+def save_usage_stats(data):
+    save_json_file(USAGE_STATS_FILE, data)
+
+def load_burner_registry():
+    return load_json_file(BURNER_REGISTRY_FILE, {})
+
+def save_burner_registry(data):
+    save_json_file(BURNER_REGISTRY_FILE, data)
+
+def load_persistent_pipelines():
+    return load_json_file(PERSISTENT_PIPELINES_FILE, {})
+
+def save_persistent_pipelines(data):
+    save_json_file(PERSISTENT_PIPELINES_FILE, data)
+
+def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain):
+    pipelines = load_persistent_pipelines()
+    key = f"{burner_username}@{burner_domain}"
+    pipelines[key] = {
+        "user_id": str(user_id),
+        "username": username,
+        "brand_name": brand_name,
+        "burner_username": burner_username,
+        "burner_domain": burner_domain,
+        "elapsed": 0
+    }
+    save_persistent_pipelines(pipelines)
+
+def remove_persistent_pipeline(burner_address):
+    pipelines = load_persistent_pipelines()
+    key = burner_address.lower()
+    if key in pipelines:
+        del pipelines[key]
+        save_persistent_pipelines(pipelines)
+
+def log_user_usage(user_id, username, brand_name, burner_address, subject, body):
+    stats = load_usage_stats()
+    uid = str(user_id)
+    if uid not in stats:
+        stats[uid] = {"total_generations": 0, "history": []}
+    
+    stats[uid]["total_generations"] += 1
+    stats[uid]["history"].append({
+        "brand": brand_name,
+        "burner": burner_address,
+        "subject": subject
+    })
+    save_usage_stats(stats)
+
+    registry = load_burner_registry()
+    registry[burner_address.lower()] = {
+        "user_id": uid,
+        "username": username,
+        "brand": brand_name,
+        "subject": subject,
+        "body_snippet": body[:200],
+        "status": "Active Pipeline Waiting for Response"
+    }
+    save_burner_registry(registry)
+
+def update_burner_status(burner_address, new_status):
+    registry = load_burner_registry()
+    b_key = burner_address.lower()
+    if b_key in registry:
+        registry[b_key]["status"] = new_status
+        save_burner_registry(registry)
+
 def add_user_voucher(user_id, username, brand_name, value, custom_code):
     data = load_economy()
     uid = str(user_id)
@@ -80,17 +153,9 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code):
     save_economy(data)
 
 class DynamicBurnerMailbox:
-    def __init__(self, forced_name=None):
-        clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
-        if forced_name:
-            parts = forced_name.lower().split()
-            if len(parts) >= 2:
-                self.username = f"{parts[0]}.{parts[1]}{random.randint(10, 99)}"
-            else:
-                self.username = f"{parts[0]}{random.randint(100, 999)}"
-        else:
-            self.username = f"user.claim.{random.randint(10000, 99999)}"
-        self.domain = random.choice(clean_domains)
+    def __init__(self, username, domain):
+        self.username = username
+        self.domain = domain
         self.address = f"{self.username}@{self.domain}"
 
     def check_inbox_and_attachments(self):
@@ -168,7 +233,6 @@ def generate_mistral_complaint(brand_key):
     return f"Terrible service at {town}. I demand a voucher.", consistent_name, town, "Complaint"
 
 def ask_mistral_chatbot(user_query, author_name, author_id):
-    """Acts as a free-flowing chat persona while plugged directly into the database code brain for real-time live data updates."""
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         return "Mistral API key is missing."
@@ -178,28 +242,26 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
         "Content-Type": "application/json"
     }
     
-    # Pull live runtime database metrics for the code-brain context
     active_data = load_active_users()
     economy_data = load_economy()
+    usage_stats = load_usage_stats()
+    burner_registry = load_burner_registry()
+    persistent_pipelines = load_persistent_pipelines()
     
     user_uid = str(author_id)
     user_active_count = active_data.get(user_uid, 0)
+    user_total_gens = usage_stats.get(user_uid, {}).get("total_generations", 0)
     user_vouchers_count = len(economy_data.get(user_uid, {}).get("vouchers", []))
-    total_active_sessions_global = sum(active_data.values())
     
-    supported_brands_list = ", ".join(BRANDS.keys()) if BRANDS else "none configured"
-
     system_prompt = (
-        f"You are an intelligent, witty, and free-flowing AI companion and code-brain supervisor running inside a Discord server for automated consumer grievances and voucher verification pipelines.\n"
-        f"You can talk naturally, crack jokes, and converse freely about anything, but you also have direct access to system telemetry.\n"
-        f"CURRENT REAL-TIME SYSTEM TELEMETRY (CODE BRAIN STATUS):\n"
-        f"- Talking User: {author_name} (ID: {author_id})\n"
-        f"- This User's Active Pipelines: {user_active_count} / 50 max slots\n"
-        f"- This User's Saved Vouchers: {user_vouchers_count}\n"
-        f"- Total Global Active Sessions across server: {total_active_sessions_global}\n"
-        f"- Configured Brand Keys: [{supported_brands_list}]\n"
-        f"- Available Commands: `![brand] gen` (launches complaint & verification pipeline) and `!voucher` (checks wallet).\n"
-        f"Use this telemetry data intelligently if users ask for status updates, stats, or how their setup is performing!"
+        f"You are Mistral, an intelligent code-brain supervisor and companion for this consumer grievance platform.\n"
+        f"REAL-TIME CODE-BRAIN TELEMETRY:\n"
+        f"- Querying User: {author_name} (ID: {author_id})\n"
+        f"- User Total Lifetime Pipelines Launched: {user_total_gens}\n"
+        f"- User Currently Active Pipelines: {user_active_count}\n"
+        f"- User Secured Vouchers: {user_vouchers_count}\n"
+        f"- Total Persistent Active Pipelines in Disk State: {len(persistent_pipelines)}\n"
+        f"- Total Registered Burners in Database: {len(burner_registry)}"
     )
 
     payload = {
@@ -219,7 +281,7 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
     except Exception:
         pass
     
-    return "My neural network hiccuped for a second, ask me again!"
+    return "Code-brain telemetry glitch encountered, ask again!"
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
@@ -255,9 +317,11 @@ def handle_human_verification_check(email_body):
             return True
     return False
 
-async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj):
-    elapsed = 0
+async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj, elapsed_time=0):
     max_wait = 1200
+    elapsed = elapsed_time
+    register_persistent_pipeline(user_id, username, brand_name, burner_obj.username, burner_obj.domain)
+    
     try:
         while elapsed < max_wait:
             await asyncio.sleep(35)
@@ -266,6 +330,7 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
             incoming = await asyncio.to_thread(burner_obj.check_inbox_and_attachments)
             if incoming:
                 if handle_human_verification_check(incoming.body):
+                    update_burner_status(burner_obj.address, "Triggered Human/SMS Verification Wall - Bypassing...")
                     await asyncio.sleep(5) 
                     continue
 
@@ -276,28 +341,33 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
                     val = round(random.uniform(5.00, 25.00), 2)
                     
                     add_user_voucher(user_id, username, brand_name, val, extracted_code)
+                    update_burner_status(burner_obj.address, f"Success! Voucher Secured (£{val:.2f})")
                     
-                    user = await bot.fetch_user(int(user_id))
-                    if user:
-                        dm_text = (
-                            f"🛡️ **Identity Verification & Voucher Secured!**\n"
-                            f"Brand: **{brand_name}**\n"
-                            f"Voucher Code: `{extracted_code}` (Value: **£{val:.2f}**)"
-                        )
-                        
-                        if incoming.attachments:
-                            for att in incoming.attachments:
-                                att_name = att.get("filename", "voucher_barcode.png")
-                                att_url = f"https://www.1secmail.com/api/v1/?action=download&login={burner_obj.username}&domain={burner_obj.domain}&id={att.get('id')}"
-                                img_resp = requests.get(att_url)
-                                if img_resp.status_code == 200:
-                                    img_file = discord.File(BytesIO(img_resp.content), filename=att_name)
-                                    await user.send(dm_text, file=img_file)
-                                    break
-                        else:
-                            await user.send(dm_text)
+                    try:
+                        user = await bot.fetch_user(int(user_id))
+                        if user:
+                            dm_text = (
+                                f"🛡️ **Identity Verification & Voucher Secured!**\n"
+                                f"Brand: **{brand_name}**\n"
+                                f"Voucher Code: `{extracted_code}` (Value: **£{val:.2f}**)"
+                            )
+                            
+                            if incoming.attachments:
+                                for att in incoming.attachments:
+                                    att_name = att.get("filename", "voucher_barcode.png")
+                                    att_url = f"https://www.1secmail.com/api/v1/?action=download&login={burner_obj.username}&domain={burner_obj.domain}&id={att.get('id')}"
+                                    img_resp = requests.get(att_url)
+                                    if img_resp.status_code == 200:
+                                        img_file = discord.File(BytesIO(img_resp.content), filename=att_name)
+                                        await user.send(dm_text, file=img_file)
+                                        break
+                            else:
+                                await user.send(dm_text)
+                    except Exception:
+                        pass
                     break
     finally:
+        remove_persistent_pipeline(burner_obj.address)
         active_users = load_active_users()
         uid_str = str(user_id)
         if uid_str in active_users and active_users[uid_str] > 0:
@@ -305,6 +375,24 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
             if active_users[uid_str] <= 0:
                 del active_users[uid_str]
             save_active_users(active_users)
+
+@bot.event
+async def on_ready():
+    print(f"Logged in as {bot.user.name} | Resuming persistent pipelines...")
+    
+    # Automatically restore and resume any active pipelines from disk storage after a reboot/update
+    pipelines = load_persistent_pipelines()
+    if pipelines:
+        print(f"🔄 Restoring {len(pipelines)} ongoing pipeline verification loops from persistent storage...")
+        for burner_key, data in list(pipelines.items()):
+            burner_obj = DynamicBurnerMailbox(data["burner_username"], data["burner_domain"])
+            bot.loop.create_task(run_identity_and_voucher_pipeline(
+                data["user_id"],
+                data["username"],
+                data["brand_name"],
+                burner_obj,
+                elapsed_time=data.get("elapsed", 0)
+            ))
 
 @bot.event
 async def on_message(message):
@@ -344,15 +432,20 @@ async def on_message(message):
             b_info = BRANDS[brand_query]
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
             
-            burner_obj = DynamicBurnerMailbox(forced_name=complaint_name)
+            clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
+            b_username = f"user.claim.{random.randint(10000, 99999)}"
+            b_domain = random.choice(clean_domains)
+            burner_obj = DynamicBurnerMailbox(b_username, b_domain)
             burner_address = burner_obj.address
+
+            log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body)
 
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
             email_client_layout = (
                 f"🛡️ **{b_info['name']}**: Pipeline active ({active_users[uid_str]}/50 slots)\n"
-                f"> **From:** `{burner_address}`\n"
+                f"> **Burner Assigned:** `{burner_address}`\n"
                 f"> **To:** `{b_info['email']}`\n"
                 f"> **Subject:** `{subject_line}`\n"
                 f"> ----------------------------------------\n"
@@ -384,13 +477,33 @@ async def on_message(message):
                     if active_users[uid_str] <= 0:
                         del active_users[uid_str]
                     save_active_users(active_users)
+                update_burner_status(burner_address, f"Dispatch Failed: {e}")
                 await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
 
             bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj))
             return
 
-    # 2. Free-flowing Chat with Code-Brain Integration (Responds to open chat without needing mentions, feeds on database stats)
+    # 2. Burner Status Command Check
+    if content_lower.startswith("!status"):
+        parts = content.split()
+        if len(parts) > 1:
+            query_burner = parts[1].strip().lower()
+            registry = load_burner_registry()
+            if query_burner in registry:
+                info = registry[query_burner]
+                embed = discord.Embed(title=f"📊 Burner Status: {query_burner}", color=0xF39C12)
+                embed.add_field(name="Brand", value=info["brand"], inline=True)
+                embed.add_field(name="Owner", value=info["username"], inline=True)
+                embed.add_field(name="Pipeline State", value=info["status"], inline=False)
+                embed.add_field(name="Subject", value=info["subject"], inline=False)
+                await message.reply(embed=embed)
+                return
+            else:
+                await message.reply(f"❌ Could not find burner address `{query_burner}` in the database.")
+                return
+
+    # 3. Free-flowing Code-Brain Chat
     if not content.startswith("!"):
         async with message.channel.typing():
             ai_reply = await asyncio.to_thread(ask_mistral_chatbot, content, message.author.name, message.author.id)
@@ -425,10 +538,6 @@ async def show_voucher_wallet(ctx):
         embed.add_field(name=f"Voucher #{i}: {v['name']}", value=field_value, inline=False)
 
     await ctx.send(embed=embed)
-
-@bot.event
-async def on_ready():
-    print(f"Logged in as {bot.user.name} | Code-Brain & Free-Flow Chat online.")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
