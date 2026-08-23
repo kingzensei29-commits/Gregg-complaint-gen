@@ -89,140 +89,140 @@ BRANDS = {
     "mcdonalds": {
         "name": "McDonald's", "email": "customerservices@mcdonalds.co.uk", "color": 0xFFC72C, "min_tier": "privates",
         "towns": ["London", "Manchester", "Birmingham"],
-        "complaint_template": "I ordered a {item} via your drive-thru / counter at the {town} branch, and it was completely freezing cold, missing key items, and the chips tasted stale and rubbery. This is a joke."
+        "complaint_template": "I ordered a product via your drive-thru / counter at the {town} branch, and it was completely freezing cold, missing key items, and the chips tasted stale and rubbery. This is a joke."
     },
     "apple": {
         "name": "Apple UK", "email": "contactus.uk@apple.com", "color": 0xA2AAAD, "min_tier": "privates",
         "towns": ["London", "Glasgow", "Cardiff"],
-        "complaint_template": "I recently brought my {item} to your store in {town} for support, and the service was appalling. Staff were dismissive, and my hardware issue remains completely unresolved despite paying for diagnostics."
+        "complaint_template": "I recently brought my device to your store in {town} for support, and the service was appalling. Staff were dismissive, and my hardware issue remains completely unresolved despite paying for diagnostics."
     },
     "currys": {
         "name": "Currys", "email": "customer.relations@currys.co.uk", "color": 0x0000FF, "min_tier": "privates",
         "towns": ["Leeds", "Bristol", "Sheffield"],
-        "complaint_template": "My delivery for a {item} scheduled at my {town} address was not only delayed by three days without notice, but the box arrived heavily damaged and the unit is non-functional."
+        "complaint_template": "My delivery for an appliance scheduled at my {town} address was not only delayed by three days without notice, but the box arrived heavily damaged and the unit is non-functional."
     },
     "samsung": {
         "name": "Samsung UK", "email": "support.uk@samsung.com", "color": 0x1428A0, "min_tier": "privates",
         "towns": ["London", "Manchester", "Edinburgh"],
-        "complaint_template": "The {item} I ordered online arrived with a cracked internal screen and software glitches straight out of the box. Your support team has ignored my refund requests for over a week."
+        "complaint_template": "The device I ordered online arrived with a cracked internal screen and software glitches straight out of the box. Your support team has ignored my refund requests for over a week."
     },
     "nike": {
         "name": "Nike UK", "email": "help.uk@nike.com", "color": 0x111111, "min_tier": "privates",
         "towns": ["London", "Liverpool", "Newcastle"],
-        "complaint_template": "I ordered a pair of {item} delivered to {town}, but received the completely wrong size and style. Your online return portal is broken and will not generate a shipping label."
+        "complaint_template": "I ordered a pair of trainers delivered to {town}, but received the completely wrong size and style. Your online return portal is broken and will not generate a shipping label."
     },
 
     # --- EXCLUSIVE TIER ---
     "dixy": {
         "name": "Dixy Chicken", "email": "support@dixychicken.com", "color": 0xFFD700, "min_tier": "exclusive",
         "towns": ["Birmingham", "Leicester", "Bradford"],
-        "complaint_template": "I ordered a {item} at your {town} branch and found what appeared to be undercooked chicken and a hair baked into the coating. Absolutely vile hygiene standards."
+        "complaint_template": "I ordered food at your {town} branch and found what appeared to be undercooked chicken and a hair baked into the coating. Absolutely vile hygiene standards."
     },
     "argos": {
         "name": "Argos", "email": "orderenquiries@argos.co.uk", "color": 0xE60012, "min_tier": "exclusive",
         "towns": ["London", "Manchester", "Birmingham"],
-        "complaint_template": "I used the Fast Track collection for a {item} at the {town} store, only to be told after waiting 45 minutes that it was out of stock despite my confirmation email stating otherwise."
+        "complaint_template": "I used the Fast Track collection for a product at the {town} store, only to be told after waiting 45 minutes that it was out of stock despite my confirmation email stating otherwise."
     },
     "primark": {
         "name": "Primark", "email": "customercare@primark.ie", "color": 0x00A3E0, "min_tier": "exclusive",
         "towns": ["Birmingham", "Manchester", "London"],
-        "complaint_template": "The {item} I purchased from your {town} branch tore at the seams after just a single gentle wash. The clothing quality is plummeting and I demand a full refund."
+        "complaint_template": "The clothing I purchased from your {town} branch tore at the seams after just a single gentle wash. The clothing quality is plummeting and I demand a full refund."
     },
     "jd": {
         "name": "JD Sports", "email": "customercare@jdsports.co.uk", "color": 0x000000, "min_tier": "exclusive",
         "towns": ["Liverpool", "Manchester", "Glasgow"],
-        "complaint_template": "My online order containing a {item} has been stuck in 'processing' for two weeks with zero updates from your courier or customer service team regarding my {town} address."
+        "complaint_template": "My online order containing apparel has been stuck in 'processing' for two weeks with zero updates from your courier or customer service team regarding my {town} address."
     },
     "zara": {
         "name": "Zara UK", "email": "contact.uk@zara.com", "color": 0x222222, "min_tier": "exclusive",
         "towns": ["London", "Edinburgh", "Brighton"],
-        "complaint_template": "I received an online delivery to {town} containing a damaged {item} with missing buttons and strong chemical stains. Customer support chat keeps disconnecting me."
+        "complaint_template": "I received an online delivery to {town} containing damaged garments with missing buttons and strong chemical stains. Customer support chat keeps disconnecting me."
     },
 
     # --- VIPS TIER ---
     "burgerking": {
         "name": "Burger King", "email": "consumer@burgerking.co.uk", "color": 0x502314, "min_tier": "vips",
         "towns": ["London", "Edinburgh", "Belfast"],
-        "complaint_template": "My {item} meal ordered via delivery app to my {town} location arrived completely cold, drenched in excessive sauce, and missing the drink entirely."
+        "complaint_template": "My meal ordered via delivery app to my {town} location arrived completely cold, drenched in excessive sauce, and missing the drink entirely."
     },
     "dominos": {
         "name": "Domino's Pizza", "email": "services@dominos.co.uk", "color": 0x006491, "min_tier": "vips",
         "towns": ["Coventry", "Cardiff", "Hull"],
-        "complaint_template": "Our {item} arrived over an hour late from your {town} branch, stone cold, crushed sideways in the box, and missing half the requested toppings."
+        "complaint_template": "Our pizza arrived over an hour late from your {town} branch, stone cold, crushed sideways in the box, and missing half the requested toppings."
     },
     "boots": {
         "name": "Boots", "email": "boots.customercare@boots.co.uk", "color": 0x001489, "min_tier": "vips",
         "towns": ["Nottingham", "London", "Bristol"],
-        "complaint_template": "An expensive {item} item was missing from my Click & Collect order at the {town} branch, and the store staff refused to check inventory or issue a replacement."
+        "complaint_template": "An expensive cosmetic item was missing from my Click & Collect order at the {town} branch, and the store staff refused to check inventory or issue a replacement."
     },
     "next": {
         "name": "Next", "email": "complaints@next.co.uk", "color": 0x990000, "min_tier": "vips",
         "towns": ["Leicester", "Sheffield", "Cardiff"],
-        "complaint_template": "I received an unrequested invoice for a {item} return I handed back to your {town} courier weeks ago. Your billing department is completely disorganized."
+        "complaint_template": "I received an unrequested invoice for a fashion return I handed back to your {town} courier weeks ago. Your billing department is completely disorganized."
     },
     "asos": {
         "name": "ASOS", "email": "support@asos.com", "color": 0x222222, "min_tier": "vips",
         "towns": ["London", "Manchester", "Leeds"],
-        "complaint_template": "My express delivery for a {item} needed for a weekend event in {town} never showed up, tracking shows it looping between distribution centers indefinitely."
+        "complaint_template": "My express delivery for an outfit needed for a weekend event in {town} never showed up, tracking shows it looping between distribution centers indefinitely."
     },
 
     # --- OGS TIER ---
     "kfc": {
         "name": "KFC", "email": "care@kfc.co.uk", "color": 0xF42A41, "min_tier": "og",
         "towns": ["London", "Cardiff", "Liverpool"],
-        "complaint_template": "The {item} bucket from your {town} branch was greasy, bone-dry, and missing multiple pieces of chicken that I paid for. Abysmal preparation standards."
+        "complaint_template": "The chicken bucket from your {town} branch was greasy, bone-dry, and missing multiple pieces of food that I paid for. Abysmal preparation standards."
     },
     "tesco": {
         "name": "Tesco", "email": "customer.service@tesco.com", "color": 0x00539F, "min_tier": "og",
         "towns": ["London", "Welwyn", "Manchester"],
-        "complaint_template": "My home delivery in {town} contained spoiled dairy products and a {item} that was past its expiration date by three days. Completely unacceptable food safety."
+        "complaint_template": "My home delivery in {town} contained spoiled dairy products and groceries that were past their expiration date by three days. Completely unacceptable food safety."
     },
     "sainsburys": {
         "name": "Sainsbury's", "email": "enquiries@sainsburys.co.uk", "color": 0xF56600, "min_tier": "og",
         "towns": ["London", "Brighton", "Reading"],
-        "complaint_template": "Half of my grocery substitutions for the {item} were smashed or squashed at the bottom of the crates delivered to my {town} residence."
+        "complaint_template": "Half of my grocery substitutions were smashed or squashed at the bottom of the crates delivered to my {town} residence."
     },
     "asda": {
         "name": "Asda", "email": "help@asda.co.uk", "color": 0x78BE20, "min_tier": "og",
         "towns": ["Leeds", "Manchester", "Bristol"],
-        "complaint_template": "The driver dumped my {town} order on the curb in the rain without knocking, and the {item} was completely crushed and ruined."
+        "complaint_template": "The driver dumped my {town} order on the curb in the rain without knocking, and the fragile goods inside were completely crushed and ruined."
     },
     "morrisons": {
         "name": "Morrisons", "email": "fresh@morrisonsplc.co.uk", "color": 0x007833, "min_tier": "og",
         "towns": ["Bradford", "Leeds", "Sheffield"],
-        "complaint_template": "The fresh {item} purchased from Market Street at your {town} branch was already rotting under the packaging wrapper when opened at home."
+        "complaint_template": "The fresh bakery/meat items purchased from Market Street at your {town} branch were already rotting under the packaging wrapper when opened at home."
     },
 
     # --- MEMBERS TIER ---
     "greg": {
         "name": "Greggs", "email": "getintouch@greggs.co.uk", "color": 0xF26522, "min_tier": "members",
         "towns": ["Newcastle", "London", "Leeds"],
-        "complaint_template": "I bought a {item} at your {town} shop and it was ice cold in the middle as if it had just been pulled straight from a freezer shelf. Disgusting quality."
+        "complaint_template": "I bought a bake at your {town} shop and it was ice cold in the middle as if it had just been pulled straight from a freezer shelf. Disgusting quality."
     },
     "subway": {
         "name": "Subway", "email": "support@subway.com", "color": 0x00843D, "min_tier": "members",
         "towns": ["Sheffield", "Bristol", "Nottingham"],
-        "complaint_template": "My {item} order at the {town} store had completely incorrect toppings, stale bread, and the staff were incredibly rude when asked to remake it."
+        "complaint_template": "My sandwich order at the {town} store had completely incorrect toppings, stale bread, and the staff were incredibly rude when asked to remake it."
     },
     "costa": {
         "name": "Costa Coffee", "email": "feedback@costa.co.uk", "color": 0x8C1D40, "min_tier": "members",
         "towns": ["London", "Manchester", "York"],
-        "complaint_template": "My {item} order at your {town} cafe took 30 minutes to make, came out lukewarm, and had coffee grounds floating all through the drink."
+        "complaint_template": "My coffee order at your {town} cafe took 30 minutes to make, came out lukewarm, and had coffee grounds floating all through the drink."
     },
     "starbucks": {
         "name": "Starbucks", "email": "customerservice@starbucks.co.uk", "color": 0x00704A, "min_tier": "members",
         "towns": ["Bath", "Oxford", "Cambridge"],
-        "complaint_template": "Mobile order for a {item} at the {town} branch was completely ignored for 40 minutes while staff chatted behind the counter. Unprofessional service."
+        "complaint_template": "Mobile order for a beverage at the {town} branch was completely ignored for 40 minutes while staff chatted behind the counter. Unprofessional service."
     },
     "lidl": {
         "name": "Lidl GB", "email": "customer.services@lidl.co.uk", "color": 0x0050AA, "min_tier": "members",
         "towns": ["London", "Wimbledon", "Glasgow"],
-        "complaint_template": "The {item} items I bought from the middle aisle at your {town} store stopped working within 24 hours. Your refund desk refused to honor my receipt."
+        "complaint_template": "The electronics I bought from the middle aisle at your {town} store stopped working within 24 hours. Your refund desk refused to honor my receipt."
     },
     "aldi": {
         "name": "Aldi UK", "email": "customer.service@aldi.co.uk", "color": 0x002B66, "min_tier": "members",
         "towns": ["Atherstone", "London", "Birmingham"],
-        "complaint_template": "Checkout staff at your {town} branch slammed my {item} and other groceries down so violently that the packaging split open all over the belt."
+        "complaint_template": "Checkout staff at your {town} branch slammed my fragile groceries down so violently that the packaging split open all over the belt."
     }
 }
 
@@ -278,18 +278,12 @@ class SafeTempMail:
 def generate_angry_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
-    
-    # Extract contextual items from previous version structure or fallback list
-    fallback_items = ["Product Order", "Service Item", "Delivery Box"]
-    item = random.choice(fallback_items)
-    
     opening = random.choice(ANGRY_OPENINGS)
     closing = random.choice(ANGRY_CLOSINGS)
     signoff = random.choice(SIGN_OFFS)
     consistent_name = fake.name()
     
-    # Generate contextual body matching specific brand topics
-    core_issue = b_data["complaint_template"].format(item=item, town=town)
+    core_issue = b_data["complaint_template"].format(town=town)
     
     email_body = (
         f"{opening}\n\n"
@@ -299,7 +293,7 @@ def generate_angry_complaint(brand_key):
         f"{closing}\n\n"
         f"{signoff}\n{consistent_name}"
     )
-    return email_body, consistent_name, town, "High Street", item
+    return email_body, consistent_name, town, "High Street"
 
 def create_email_image(sender, recipient, subject, body, brand_color="#F26522", output_path="sent_complaint.png"):
     width, height = 800, 520
@@ -339,13 +333,13 @@ async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, stat
                 reward = round(random.uniform(5.00, 15.00), 2)
                 add_user_balance(user_id, reward)
                 add_user_voucher(user_id, username, b_name, reward)
-                await status_message.channel.send(f"🚨 **{b_name} Support resolved ticket for <@{user_id}>! £{reward:.2f} credited!** Type `!redeem`")
+                await status_message.channel.send(f"🚨 **{b_name} Support replied to ticket for <@{user_id}>! Real voucher/balance logged!** Type `!vouchers`")
                 return
 
         fallback = 10.00
         add_user_balance(user_id, fallback)
         add_user_voucher(user_id, username, b_name, fallback)
-        await status_message.channel.send(f"⏰ **Ticket Expired:** {b_name} bonus `£{fallback:.2f}` credited to <@{user_id}>.")
+        await status_message.channel.send(f"⏰ **Ticket Expired:** {b_name} fallback reward `£{fallback:.2f}` credited to <@{user_id}>.")
     except Exception as e:
         print(f"Inbox watcher error: {e}")
 
@@ -369,6 +363,33 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
+# --- ECONOMY COMMANDS ---
+@bot.command(name="vouchers")
+async def show_vouchers(ctx):
+    data = load_economy()
+    uid = str(ctx.author.id)
+    if uid not in data or not data[uid]["vouchers"]:
+        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. File a complaint using a brand command!")
+        return
+
+    embed = discord.Embed(title=f"🎟️ {ctx.author.name}'s Logged Vouchers & Rewards", color=0x2ECC71)
+    for v in data[uid]["vouchers"]:
+        embed.add_field(name=v["name"], value=f"Reference/Code: `{v['code']}`\nTracked Value: **£{v['value']:.2f}**", inline=False)
+    await ctx.send(embed=embed)
+
+@bot.command(name="redeem")
+async def redeem_balance(ctx):
+    data = load_economy()
+    uid = str(ctx.author.id)
+    if uid not in data or data[uid]["balance"] <= 0:
+        await ctx.send(f"⚠️ {ctx.author.mention}, you have no available balance to redeem.")
+        return
+
+    balance = data[uid]["balance"]
+    data[uid]["balance"] = 0.0
+    save_economy(data)
+    await ctx.send(f"✅ {ctx.author.mention}, successfully submitted your payout request for your accumulated balance of **£{balance:.2f}**! Check your DMs or contact server staff.")
+
 # --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (BREVO HTTP API) ---
 def register_brand_command(b_key):
     @bot.command(name=b_key)
@@ -380,7 +401,7 @@ def register_brand_command(b_key):
             await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status or higher to use `!{b_key}`.", delete_after=10)
             return
 
-        email_body, complaint_name, town, street, item = generate_angry_complaint(b_key)
+        email_body, complaint_name, town, street = generate_angry_complaint(b_key)
         temp_email = SafeTempMail(forced_name=complaint_name)
         burner_address = temp_email.address
         subject_line = f"Formal Complaint regarding service at {town} branch"
@@ -459,7 +480,7 @@ async def bulk_generation(ctx, brand_key: str = None, count: int = 5):
     success_count = 0
     for i in range(count):
         try:
-            email_body, complaint_name, town, street, item = generate_angry_complaint(brand_key)
+            email_body, complaint_name, town, street = generate_angry_complaint(brand_key)
             temp_email = SafeTempMail(forced_name=complaint_name)
             burner_address = temp_email.address
             print(f"[BULK {i+1}/{count}] {b_data['name']} -> Name: {complaint_name} | Email: {burner_address}")
