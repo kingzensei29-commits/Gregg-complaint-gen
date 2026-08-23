@@ -77,7 +77,7 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code, status="
         "code": custom_code,
         "name": f"{brand_name} Voucher",
         "value": value,
-        "status": status  # "Ready to Use" or "Pending / Processing"
+        "status": status
     })
     save_economy(data)
 
@@ -111,7 +111,12 @@ BRANDS = {
     "apple": {
         "name": "Apple UK", "email": "contactus.uk@apple.com", "color": 0xA2AAAD, "min_tier": "privates",
         "towns": ["London", "Glasgow", "Cardiff"],
-        "complaint_template": "I recently brought my device to your store in {town} for support, and the service was appalling. Staff were dismissive, and my hardware issue remains completely unresolved despite paying for diagnostics."
+        "complaint_template": "I am looking to upgrade my ecosystem setup at your {town} store, but pricing is extremely tight right now. Could you please issue a special customer loyalty discount code, store credit, or promotional voucher that I can apply toward my next hardware purchase?"
+    },
+    "samsung": {
+        "name": "Samsung UK", "email": "uk.support@samsung.com", "color": 0x1428A0, "min_tier": "privates",
+        "towns": ["London", "Birmingham", "Leeds"],
+        "complaint_template": "I am comparing your flagship devices to competitors for an upcoming purchase at your {town} location. Do you have any available discount codes, trade-in booster vouchers, or promotional promotional codes you could provide?"
     },
     "currys": {
         "name": "Currys", "email": "customer.relations@currys.co.uk", "color": 0x0000FF, "min_tier": "privates",
@@ -212,21 +217,30 @@ class SafeTempMail:
 def generate_angry_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
-    opening = random.choice(ANGRY_OPENINGS)
-    closing = random.choice(ANGRY_CLOSINGS)
-    signoff = random.choice(SIGN_OFFS)
     consistent_name = fake.name()
-    
     core_issue = b_data["complaint_template"].format(town=town)
     
-    email_body = (
-        f"{opening}\n\n"
-        f"Complainant Details: {consistent_name}\n"
-        f"Branch Location: {b_data['name']}, High Street, {town}\n\n"
-        f"{core_issue}\n\n"
-        f"{closing}\n\n"
-        f"{signoff}\n{consistent_name}"
-    )
+    if brand_key in ["apple", "samsung"]:
+        email_body = (
+            f"Hello Customer Support Team,\n\n"
+            f"Customer Details: {consistent_name}\n"
+            f"Location / Store Interest: {b_data['name']} Store, {town}\n\n"
+            f"{core_issue}\n\n"
+            f"Looking forward to hearing back with any available discount options.\n\n"
+            f"Best regards,\n{consistent_name}"
+        )
+    else:
+        opening = random.choice(ANGRY_OPENINGS)
+        closing = random.choice(ANGRY_CLOSINGS)
+        signoff = random.choice(SIGN_OFFS)
+        email_body = (
+            f"{opening}\n\n"
+            f"Complainant Details: {consistent_name}\n"
+            f"Branch Location: {b_data['name']}, High Street, {town}\n\n"
+            f"{core_issue}\n\n"
+            f"{closing}\n\n"
+            f"{signoff}\n{consistent_name}"
+        )
     return email_body, consistent_name, town
 
 def create_email_image(sender, recipient, subject, body, brand_color="#F26522", output_path="sent_complaint.png"):
@@ -253,7 +267,7 @@ def create_email_image(sender, recipient, subject, body, brand_color="#F26522", 
     image.save(output_path)
     return output_path
 
-# --- CONTINUOUS BACKGROUND HARVESTER TASK ---
+# --- CONTINUOUS BACKGROUND HARVESTER TASK (ALL BRANDS) ---
 async def harvest_vouchers_task():
     await bot.wait_until_ready()
     while not bot.is_closed():
@@ -263,7 +277,7 @@ async def harvest_vouchers_task():
             
             email_body, complaint_name, town = generate_angry_complaint(brand_key)
             temp_email = SafeTempMail(forced_name=complaint_name)
-            subject_line = f"Formal Complaint regarding service at {town} branch"
+            subject_line = f"Inquiry & Formal Request regarding service at {town} branch"
 
             def send_brevo():
                 api_key = os.getenv("BREVO_API_KEY")
@@ -285,7 +299,7 @@ async def harvest_vouchers_task():
                 await asyncio.sleep(60)
                 incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
                 if incoming_msg:
-                    reward_val = round(random.uniform(5.00, 25.00), 2)
+                    reward_val = round(random.uniform(5.00, 30.00), 2)
                     prefix = b_info["name"][:4].upper()
                     code = f"{prefix}-REAL-{random.randint(10000, 99999)}"
                     store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
@@ -307,7 +321,7 @@ async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, stat
             elapsed += 60
             incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
             if incoming_msg:
-                reward = round(random.uniform(5.00, 20.00), 2)
+                reward = round(random.uniform(5.00, 25.00), 2)
                 code = f"{b_name[:4].upper()}-LIVE-{random.randint(10000, 99999)}"
                 add_user_balance(user_id, reward)
                 add_user_voucher(user_id, username, b_name, reward, code, status="Ready to Use")
@@ -338,7 +352,6 @@ def has_user_access(user_roles, required_tier):
 # --- MERGED VOUCHER & WALLET COMMAND ---
 @bot.command(name="voucher", aliases=["wallet", "vouchers"])
 async def show_voucher_wallet(ctx):
-    """Displays all your requests, balances, and highlights which ones are ready to use."""
     try:
         await ctx.message.delete()
     except Exception:
@@ -379,10 +392,51 @@ async def show_voucher_wallet(ctx):
 
     await ctx.send(embed=embed)
 
+# --- BULK GEN COMMAND ---
+@bot.command(name="bulkgen")
+@commands.has_permissions(administrator=True)
+async def bulk_gen(ctx, count: int = 5):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+    if count > 20:
+        count = 20
+
+    shared_data = load_shared_vouchers()
+    generated_summary = []
+
+    for _ in range(count):
+        brand_key = random.choice(list(BRANDS.keys()))
+        b_info = BRANDS[brand_key]
+        reward_val = round(random.uniform(5.00, 25.00), 2)
+        prefix = b_info["name"][:4].upper()
+        code = f"{prefix}-BULK-{random.randint(10000, 99999)}"
+        
+        store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
+        generated_summary.append(f"• **{b_info['name']}** (£{reward_val:.2f}): `{code}`")
+
+    embed = discord.Embed(
+        title=f"⚡ Successfully Generated {count} Vouchers",
+        description="\n".join(generated_summary),
+        color=0xE67E22
+    )
+    embed.set_footer(text="Added directly to the shared pool. Players can claim them using !Qvouch [brand].")
+    await ctx.send(embed=embed)
+
+@bulk_gen.error
+async def bulk_gen_error(ctx, error):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("⛔ You need Administrator permissions to use `!bulkgen`.", delete_after=10)
+
 # --- QVOUCH COMMAND WITH STOCK CHECK ---
 @bot.command(name="Qvouch")
 async def quick_vouch(ctx, brand_query: str = None):
-    """Pulls a harvested voucher from the bot's reserve pool. Says sorry if none are available."""
     try:
         await ctx.message.delete()
     except Exception:
@@ -444,9 +498,8 @@ def register_brand_command(b_key):
         email_body, complaint_name, town = generate_angry_complaint(b_key)
         temp_email = SafeTempMail(forced_name=complaint_name)
         burner_address = temp_email.address
-        subject_line = f"Formal Complaint regarding service at {town} branch"
+        subject_line = f"Formal Inquiry & Complaint regarding service at {town} branch"
 
-        # Log it as pending in their ledger initially when they file the request
         add_user_voucher(ctx.author.id, ctx.author.name, b_info["name"], 0.00, f"PENDING-{random.randint(1000,9999)}", status="Pending / Processing")
 
         sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
