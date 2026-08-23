@@ -11,7 +11,7 @@ from faker import Faker
 from tempmail import EMail
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Flask Tiny Web Server (Required for Render Web Service Port Binding) ---
+# --- Flask Tiny Web Server (For Render Port Binding) ---
 app = Flask(__name__)
 
 @app.route("/")
@@ -31,26 +31,99 @@ AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD")
 GREGGS_SUPPORT_EMAIL = "getintouch@greggs.co.uk"
 
 fake = Faker("en_GB")
+
+# --- Discord Intents Setup ---
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # Required to read commands!
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+# --- ADVANCED HUMANIZER POOLS ---
 ITEMS = [
     "Steak Bake", "Vegan Sausage Roll", "Festive Bake", 
-    "Sausage, Bean & Cheese Melt", "Yum Yum", "Caramel Custard Doughnut"
+    "Sausage, Bean & Cheese Melt", "Yum Yum", "Chicken Bake", "Jam Doughnut"
 ]
-TRAGEDIES = [
-    "It was structurally compromised and collapsed into my lap upon first bite.",
-    "The pastry-to-filling ratio was mathematically offensive to baking standards.",
-    "It was inexplicably cold in the middle, ruining my morning commute.",
+
+OPENINGS = [
+    "To whom it may concern, I am writing this because I'm actually fuming.",
+    "Morning. Not usually one to complain, but I've had a shocker today.",
+    "Hello team, I need to raise an issue about what happened earlier.",
+    "Hi there, genuinely gutted about my experience at one of your shops today.",
+    "Listen, I love Greggs as much as the next bloke, but today was an absolute joke."
 ]
-DEMANDS = [
-    "I expect a swift resolution and complimentary baked goods.",
-    "I demand a full inquiry into this specific branch's oven temperatures.",
+
+SCENARIOS = [
+    "I popped into the local branch on my break and grabbed a {item}. When I took my first bite outside, it was stone cold in the middle like it had just come out of a freezer.",
+    "Bought a {item} earlier today and honestly, the structural integrity was completely gone. It dissolved into a pile of crumbs and grease the second I touched it.",
+    "Got served a {item} that was so burnt on top it practically chipped my tooth, yet the filling was somehow freezing cold. Make it make sense.",
+    "Visited the counter for a quick {item} before work. The pastry was soggy, greasy, and completely inedible. Ruined my morning entirely.",
+    "Absolute shambles today. My {item} was bone dry and tasted like it had been sitting under that heatlamp since Tuesday."
 ]
+
+CLOSINGS = [
+    "Expected way better from Greggs to be honest. Sorting out some vouchers or a refund wouldn't go amiss.",
+    "I've got photos if you need them. Let me know how we're resolving this.",
+    "Not happy at all. Look forward to hearing back from someone soon.",
+    "Sort your ovens out lads. Cheers.",
+    "Absolute waste of my hard-earned cash. Sort it out please."
+]
+
+SIGN_OFFS = [
+    "Regrets,", "Kind regards (reluctantly),", "Cheers,", "Best,", "Yours,"
+]
+
+
+def generate_human_complaint(item, town, street):
+    opening = random.choice(OPENINGS)
+    scenario = random.choice(SCENARIOS).format(item=item)
+    closing = random.choice(CLOSINGS)
+    signoff = random.choice(SIGN_OFFS)
+    name = fake.name()
+    
+    if random.random() > 0.5:
+        opening = opening.lower()
+        
+    email_body = (
+        f"{opening}\n\n"
+        f"This was at the {town} branch on {street}.\n\n"
+        f"{scenario}\n\n"
+        f"{closing}\n\n"
+        f"{signoff}\n{name}"
+    )
+    return email_body, name
+
+
+def create_email_image(sender, recipient, subject, body, output_path="sent_complaint.png"):
+    """Draws an image showing the exact email dispatched to Greggs."""
+    width, height = 800, 500
+    image = Image.new("RGB", (width, height), color="#FFF3E0")
+    draw = ImageDraw.Draw(image)
+    
+    try:
+        font_title = ImageFont.truetype("arial.ttf", 18)
+        font_body = ImageFont.truetype("arial.ttf", 13)
+    except IOError:
+        font_title = ImageFont.load_default()
+        font_body = ImageFont.load_default()
+
+    draw.rectangle([(0, 0), (width, 70)], fill="#F26522")
+    draw.text((20, 20), "📤 Outbound Complaint Dispatched to Greggs", fill="white", font=font_title)
+
+    header_text = f"From: {sender}\nTo: {recipient}\nSubject: {subject}\n" + "-" * 65
+    content_text = f"{header_text}\n\n{body}"
+    
+    y_text = 85
+    for line in content_text.splitlines():
+        if y_text > height - 30:
+            break
+        draw.text((20, y_text), line, fill="#333333", font=font_body)
+        y_text += 18
+
+    image.save(output_path)
+    return output_path
 
 
 def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
+    """Draws an image displaying Greggs' support response."""
     width, height = 800, 500
     image = Image.new("RGB", (width, height), color="#FFF3E0")
     draw = ImageDraw.Draw(image)
@@ -77,74 +150,118 @@ def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
     return output_path
 
 
-async def watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200):
+def build_progress_bar(progress_percent, total_blocks=10):
+    """Generates a clean visual block-based progress bar."""
+    filled_blocks = int(round(total_blocks * (progress_percent / 100)))
+    empty_blocks = total_blocks - filled_blocks
+    bar = "█" * filled_blocks + "░" * empty_blocks
+    return f"[{bar}] {progress_percent}%"
+
+
+async def watch_burner_inbox_with_progress(temp_email, status_message, burner_address, max_wait_seconds=7200):
+    """Updates a live Discord message with a real block progress bar while waiting for Greggs."""
     elapsed = 0
-    check_interval = 30 
+    check_interval = 30  # Update every 30 seconds
 
     while elapsed < max_wait_seconds:
         await asyncio.sleep(check_interval)
         elapsed += check_interval
+        
+        # Calculate progress percentage relative to total wait time
+        percent = min(100, int((elapsed / max_wait_seconds) * 100))
+        bar_str = build_progress_bar(percent)
+        
+        try:
+            # Edit the active status message live in Discord
+            hours_left = round((max_wait_seconds - elapsed) / 3600, 1)
+            await status_message.edit(content=
+                f"✉️ **Burner inbox:** `{burner_address}`\n"
+                f"⏳ **Status:** Monitoring inbox for Greggs reply...\n"
+                f"📊 **Progress Window:** {bar_str} `(~{hours_left}h remaining)`"
+            )
+        except Exception:
+            pass
 
         try:
-            incoming_msg = temp_email.get_message()
-            if incoming_msg:
+            inbox = temp_email.get_inbox()
+            if inbox:
+                incoming_msg = inbox[0]
                 subject = incoming_msg.subject
                 sender = incoming_msg.from_addr
                 body = incoming_msg.body
                 
                 img_path = create_reply_image(sender, subject, body[:700])
                 file = discord.File(img_path, filename="greggs_reply.png")
-                await ctx.send(f"🚨 **Greggs support has replied to your burner email, {ctx.author.mention}!**", file=file)
+                await status_message.channel.send(f"🚨 **Greggs support has replied to your burner email!**", file=file)
                 return
         except Exception:
             continue
 
-    await ctx.send(f"⏰ **Timed out:** Greggs did not reply within the 2-hour window for burner inbox `{temp_email.address}`.")
+    await status_message.channel.send(f"⏰ **Timed out:** Greggs did not reply within the 2-hour window for burner inbox `{burner_address}`.")
 
 
 @bot.event
 async def on_ready():
-    print(f"Logged in successfully as {bot.user}")
+    print(f"Logged in successfully as {bot.user} (ID: {bot.user.id})")
+    print("Bot is ready and listening for commands!")
 
 
-@bot.command(name="gregger")
-async def gregger(ctx):
-    temp_email = EMail()
-    burner_address = temp_email.address
-    
-    item = random.choice(ITEMS)
-    town = fake.city()
-    name = fake.name()
-    street = fake.street_address()
-    tragedy = random.choice(TRAGEDIES)
-    demand = random.choice(DEMANDS)
+@bot.command(name="greg")
+async def greg(ctx, action: str = None):
+    if action == "gen":
+        print(f"Command '!greg gen' triggered by {ctx.author}")
+        
+        # 1. Generate temp email
+        temp_email = EMail()
+        burner_address = temp_email.address
+        
+        item = random.choice(ITEMS)
+        town = fake.city()
+        street = fake.street_address()
 
-    await ctx.send(f"✉️ **Burner inbox generated:** `{burner_address}`\nDispatching complaint to Greggs...")
+        # 2. Build humanized complaint text
+        email_body, name = generate_human_complaint(item, town, street)
+        subject_line = f"Disappointed with my visit to {town} branch"
 
-    msg = EmailMessage()
-    msg.set_subject(f"Grievance regarding a {item} - {town} Branch")
-    msg["From"] = burner_address 
-    msg["To"] = GREGGS_SUPPORT_EMAIL
-    msg["Reply-To"] = burner_address 
-    
-    email_body = (
-        f"Dear Customer Care,\n\n"
-        f"I visited your {town} branch ({street}) and purchased a {item}. {tragedy}\n\n"
-        f"{demand}\n\n"
-        f"Yours sincerely,\n{name}"
-    )
-    msg.set_content(email_body)
+        # 3. Create and send visual proof picture of the sent message
+        sent_img_path = create_email_image(burner_address, GREGGS_SUPPORT_EMAIL, subject_line, email_body)
+        sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
+        
+        await ctx.send(
+            f"✉️ **Generated burner inbox:** `{burner_address}`\n"
+            f"📝 **Humanized complaint synthesized.** Here is the exact email dispatched to Greggs:",
+            file=sent_file
+        )
 
-    try:
-        with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-            server.login(AUTH_EMAIL, AUTH_PASSWORD)
-            server.send_message(msg, from_addr=AUTH_EMAIL, to_addrs=[GREGGS_SUPPORT_EMAIL])
-    except Exception as e:
-        await ctx.send(f"❌ Failed to dispatch email: {e}")
-        return
+        # 4. Format SMTP message headers
+        msg = EmailMessage()
+        msg.set_subject(subject_line)
+        msg["From"] = burner_address 
+        msg["To"] = GREGGS_SUPPORT_EMAIL
+        msg["Reply-To"] = burner_address 
+        msg.set_content(email_body)
 
-    await ctx.send("⏳ Complaint sent successfully! Monitoring burner inbox in background (giving Greggs up to **2 hours** to reply).")
-    bot.loop.create_task(watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200))
+        # 5. Send out via SMTP
+        try:
+            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
+                server.login(AUTH_EMAIL, AUTH_PASSWORD)
+                server.send_message(msg, from_addr=AUTH_EMAIL, to_addrs=[GREGGS_SUPPORT_EMAIL])
+        except Exception as e:
+            await ctx.send(f"❌ Failed to dispatch email: {e}")
+            return
+
+        # 6. Send initial progress bar message that will live-update
+        initial_bar = build_progress_bar(0)
+        status_message = await ctx.send(
+            f"✉️ **Burner inbox:** `{burner_address}`\n"
+            f"⏳ **Status:** Complaint dispatched! Monitoring inbox...\n"
+            f"📊 **Progress Window:** {initial_bar} `(~2.0h remaining)`"
+        )
+
+        # 7. Start live background watcher with progress updates
+        bot.loop.create_task(watch_burner_inbox_with_progress(temp_email, status_message, burner_address, max_wait_seconds=7200))
+    else:
+        await ctx.send("⚠️ Usage: Type `!greg gen` to generate and send a humanized complaint to Greggs!")
 
 
 if __name__ == "__main__":
@@ -152,10 +269,10 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: DISCORD_TOKEN is missing!")
     else:
-        # Start the Flask web server in a background thread so Render's port check passes
+        # Start Flask web server for Render health checks
         server_thread = threading.Thread(target=run_web_server)
         server_thread.daemon = True
         server_thread.start()
-
-        # Start the Discord bot on the main thread
+        
+        # Start Discord Bot
         bot.run(TOKEN)
