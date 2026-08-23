@@ -83,43 +83,147 @@ ROLE_IDS = {
     "members": 1541122505899774113
 }
 
-# --- EXPANDED UK COMPANY DIRECTORY ---
+# --- EXPANDED UK COMPANY DIRECTORY WITH TOPIC-SPECIFIC TEMPLATES ---
 BRANDS = {
     # --- PRIVATES TIER ---
-    "mcdonalds": {"name": "McDonald's", "email": "customerservices@mcdonalds.co.uk", "color": 0xFFC72C, "min_tier": "privates", "items": ["Big Mac Meal", "McSpicy Meal", "Quarter Pounder"], "towns": ["London", "Manchester", "Birmingham"]},
-    "apple": {"name": "Apple UK", "email": "contactus.uk@apple.com", "color": 0xA2AAAD, "min_tier": "privates", "items": ["iPhone Screen Repair", "AirPods Pro", "MacBook Charger"], "towns": ["London", "Glasgow", "Cardiff"]},
-    "currys": {"name": "Currys", "email": "customer.relations@currys.co.uk", "color": 0x0000FF, "min_tier": "privates", "items": ["OLED TV", "Gaming Laptop", "Coffee Machine"], "towns": ["Leeds", "Bristol", "Sheffield"]},
-    "samsung": {"name": "Samsung UK", "email": "support.uk@samsung.com", "color": 0x1428A0, "min_tier": "privates", "items": ["Galaxy Smartphone", "Soundbar", "Monitor"], "towns": ["London", "Manchester", "Edinburgh"]},
-    "nike": {"name": "Nike UK", "email": "help.uk@nike.com", "color": 0x111111, "min_tier": "privates", "items": ["Air Force 1", "Tech Fleece Tracksuit", "Air Max"], "towns": ["London", "Liverpool", "Newcastle"]},
+    "mcdonalds": {
+        "name": "McDonald's", "email": "customerservices@mcdonalds.co.uk", "color": 0xFFC72C, "min_tier": "privates",
+        "towns": ["London", "Manchester", "Birmingham"],
+        "complaint_template": "I ordered a {item} via your drive-thru / counter at the {town} branch, and it was completely freezing cold, missing key items, and the chips tasted stale and rubbery. This is a joke."
+    },
+    "apple": {
+        "name": "Apple UK", "email": "contactus.uk@apple.com", "color": 0xA2AAAD, "min_tier": "privates",
+        "towns": ["London", "Glasgow", "Cardiff"],
+        "complaint_template": "I recently brought my {item} to your store in {town} for support, and the service was appalling. Staff were dismissive, and my hardware issue remains completely unresolved despite paying for diagnostics."
+    },
+    "currys": {
+        "name": "Currys", "email": "customer.relations@currys.co.uk", "color": 0x0000FF, "min_tier": "privates",
+        "towns": ["Leeds", "Bristol", "Sheffield"],
+        "complaint_template": "My delivery for a {item} scheduled at my {town} address was not only delayed by three days without notice, but the box arrived heavily damaged and the unit is non-functional."
+    },
+    "samsung": {
+        "name": "Samsung UK", "email": "support.uk@samsung.com", "color": 0x1428A0, "min_tier": "privates",
+        "towns": ["London", "Manchester", "Edinburgh"],
+        "complaint_template": "The {item} I ordered online arrived with a cracked internal screen and software glitches straight out of the box. Your support team has ignored my refund requests for over a week."
+    },
+    "nike": {
+        "name": "Nike UK", "email": "help.uk@nike.com", "color": 0x111111, "min_tier": "privates",
+        "towns": ["London", "Liverpool", "Newcastle"],
+        "complaint_template": "I ordered a pair of {item} delivered to {town}, but received the completely wrong size and style. Your online return portal is broken and will not generate a shipping label."
+    },
 
     # --- EXCLUSIVE TIER ---
-    "dixy": {"name": "Dixy Chicken", "email": "support@dixychicken.com", "color": 0xFFD700, "min_tier": "exclusive", "items": ["Peri Peri Burger", "Mighty Bucket"], "towns": ["Birmingham", "Leicester", "Bradford"]},
-    "argos": {"name": "Argos", "email": "orderenquiries@argos.co.uk", "color": 0xE60012, "min_tier": "exclusive", "items": ["Dyson Airwrap", "Nintendo Switch", "PlayStation Controller"], "towns": ["London", "Manchester", "Birmingham"]},
-    "primark": {"name": "Primark", "email": "customercare@primark.ie", "color": 0x00A3E0, "min_tier": "exclusive", "items": ["Winter Coat", "Pyjamas Set", "Bedding Bundle"], "towns": ["Birmingham", "Manchester", "London"]},
-    "jd": {"name": "JD Sports", "email": "customercare@jdsports.co.uk", "color": 0x000000, "min_tier": "exclusive", "items": ["Tracksuit", "Running Trainers", "Hoodie"], "towns": ["Liverpool", "Manchester", "Glasgow"]},
-    "zara": {"name": "Zara UK", "email": "contact.uk@zara.com", "color": 0x222222, "min_tier": "exclusive", "items": ["Wool Overcoat", "Denim Jeans", "Leather Boots"], "towns": ["London", "Edinburgh", "Brighton"]},
+    "dixy": {
+        "name": "Dixy Chicken", "email": "support@dixychicken.com", "color": 0xFFD700, "min_tier": "exclusive",
+        "towns": ["Birmingham", "Leicester", "Bradford"],
+        "complaint_template": "I ordered a {item} at your {town} branch and found what appeared to be undercooked chicken and a hair baked into the coating. Absolutely vile hygiene standards."
+    },
+    "argos": {
+        "name": "Argos", "email": "orderenquiries@argos.co.uk", "color": 0xE60012, "min_tier": "exclusive",
+        "towns": ["London", "Manchester", "Birmingham"],
+        "complaint_template": "I used the Fast Track collection for a {item} at the {town} store, only to be told after waiting 45 minutes that it was out of stock despite my confirmation email stating otherwise."
+    },
+    "primark": {
+        "name": "Primark", "email": "customercare@primark.ie", "color": 0x00A3E0, "min_tier": "exclusive",
+        "towns": ["Birmingham", "Manchester", "London"],
+        "complaint_template": "The {item} I purchased from your {town} branch tore at the seams after just a single gentle wash. The clothing quality is plummeting and I demand a full refund."
+    },
+    "jd": {
+        "name": "JD Sports", "email": "customercare@jdsports.co.uk", "color": 0x000000, "min_tier": "exclusive",
+        "towns": ["Liverpool", "Manchester", "Glasgow"],
+        "complaint_template": "My online order containing a {item} has been stuck in 'processing' for two weeks with zero updates from your courier or customer service team regarding my {town} address."
+    },
+    "zara": {
+        "name": "Zara UK", "email": "contact.uk@zara.com", "color": 0x222222, "min_tier": "exclusive",
+        "towns": ["London", "Edinburgh", "Brighton"],
+        "complaint_template": "I received an online delivery to {town} containing a damaged {item} with missing buttons and strong chemical stains. Customer support chat keeps disconnecting me."
+    },
 
     # --- VIPS TIER ---
-    "burgerking": {"name": "Burger King", "email": "consumer@burgerking.co.uk", "color": 0x502314, "min_tier": "vips", "items": ["Whopper Meal", "Chicken Royale"], "towns": ["London", "Edinburgh", "Belfast"]},
-    "dominos": {"name": "Domino's Pizza", "email": "services@dominos.co.uk", "color": 0x006491, "min_tier": "vips", "items": ["Pepperoni Passion", "Garlic Pizza Bread"], "towns": ["Coventry", "Cardiff", "Hull"]},
-    "boots": {"name": "Boots", "email": "boots.customercare@boots.co.uk", "color": 0x001489, "min_tier": "vips", "items": ["Skincare Bundle", "Electric Toothbrush", "Perfume"], "towns": ["Nottingham", "London", "Bristol"]},
-    "next": {"name": "Next", "email": "complaints@next.co.uk", "color": 0x990000, "min_tier": "vips", "items": ["Living Room Rug", "Curtains", "Designer Jeans"], "towns": ["Leicester", "Sheffield", "Cardiff"]},
-    "asos": {"name": "ASOS", "email": "support@asos.com", "color": 0x222222, "min_tier": "vips", "items": ["Party Dress", "Designer Jacket", "Sneakers"], "towns": ["London", "Manchester", "Leeds"]},
+    "burgerking": {
+        "name": "Burger King", "email": "consumer@burgerking.co.uk", "color": 0x502314, "min_tier": "vips",
+        "towns": ["London", "Edinburgh", "Belfast"],
+        "complaint_template": "My {item} meal ordered via delivery app to my {town} location arrived completely cold, drenched in excessive sauce, and missing the drink entirely."
+    },
+    "dominos": {
+        "name": "Domino's Pizza", "email": "services@dominos.co.uk", "color": 0x006491, "min_tier": "vips",
+        "towns": ["Coventry", "Cardiff", "Hull"],
+        "complaint_template": "Our {item} arrived over an hour late from your {town} branch, stone cold, crushed sideways in the box, and missing half the requested toppings."
+    },
+    "boots": {
+        "name": "Boots", "email": "boots.customercare@boots.co.uk", "color": 0x001489, "min_tier": "vips",
+        "towns": ["Nottingham", "London", "Bristol"],
+        "complaint_template": "An expensive {item} item was missing from my Click & Collect order at the {town} branch, and the store staff refused to check inventory or issue a replacement."
+    },
+    "next": {
+        "name": "Next", "email": "complaints@next.co.uk", "color": 0x990000, "min_tier": "vips",
+        "towns": ["Leicester", "Sheffield", "Cardiff"],
+        "complaint_template": "I received an unrequested invoice for a {item} return I handed back to your {town} courier weeks ago. Your billing department is completely disorganized."
+    },
+    "asos": {
+        "name": "ASOS", "email": "support@asos.com", "color": 0x222222, "min_tier": "vips",
+        "towns": ["London", "Manchester", "Leeds"],
+        "complaint_template": "My express delivery for a {item} needed for a weekend event in {town} never showed up, tracking shows it looping between distribution centers indefinitely."
+    },
 
     # --- OGS TIER ---
-    "kfc": {"name": "KFC", "email": "care@kfc.co.uk", "color": 0xF42A41, "min_tier": "og", "items": ["Boneless Banquet", "Zinger Tower"], "towns": ["London", "Cardiff", "Liverpool"]},
-    "tesco": {"name": "Tesco", "email": "customer.service@tesco.com", "color": 0x00539F, "min_tier": "og", "items": ["Finest Ready Meal", "Grocery Order", "Birthday Cake"], "towns": ["London", "Welwyn", "Manchester"]},
-    "sainsburys": {"name": "Sainsbury's", "email": "enquiries@sainsburys.co.uk", "color": 0xF56600, "min_tier": "og", "items": ["Taste the Difference Meal Deal", "Wine Case"], "towns": ["London", "Brighton", "Reading"]},
-    "asda": {"name": "Asda", "email": "help@asda.co.uk", "color": 0x78BE20, "min_tier": "og", "items": ["Extra Special Pizza", "Groceries Delivery"], "towns": ["Leeds", "Manchester", "Bristol"]},
-    "morrisons": {"name": "Morrisons", "email": "fresh@morrisonsplc.co.uk", "color": 0x007833, "min_tier": "og", "items": ["The Best Steak", "Market Street Bakery Box"], "towns": ["Bradford", "Leeds", "Sheffield"]},
+    "kfc": {
+        "name": "KFC", "email": "care@kfc.co.uk", "color": 0xF42A41, "min_tier": "og",
+        "towns": ["London", "Cardiff", "Liverpool"],
+        "complaint_template": "The {item} bucket from your {town} branch was greasy, bone-dry, and missing multiple pieces of chicken that I paid for. Abysmal preparation standards."
+    },
+    "tesco": {
+        "name": "Tesco", "email": "customer.service@tesco.com", "color": 0x00539F, "min_tier": "og",
+        "towns": ["London", "Welwyn", "Manchester"],
+        "complaint_template": "My home delivery in {town} contained spoiled dairy products and a {item} that was past its expiration date by three days. Completely unacceptable food safety."
+    },
+    "sainsburys": {
+        "name": "Sainsbury's", "email": "enquiries@sainsburys.co.uk", "color": 0xF56600, "min_tier": "og",
+        "towns": ["London", "Brighton", "Reading"],
+        "complaint_template": "Half of my grocery substitutions for the {item} were smashed or squashed at the bottom of the crates delivered to my {town} residence."
+    },
+    "asda": {
+        "name": "Asda", "email": "help@asda.co.uk", "color": 0x78BE20, "min_tier": "og",
+        "towns": ["Leeds", "Manchester", "Bristol"],
+        "complaint_template": "The driver dumped my {town} order on the curb in the rain without knocking, and the {item} was completely crushed and ruined."
+    },
+    "morrisons": {
+        "name": "Morrisons", "email": "fresh@morrisonsplc.co.uk", "color": 0x007833, "min_tier": "og",
+        "towns": ["Bradford", "Leeds", "Sheffield"],
+        "complaint_template": "The fresh {item} purchased from Market Street at your {town} branch was already rotting under the packaging wrapper when opened at home."
+    },
 
     # --- MEMBERS TIER ---
-    "greg": {"name": "Greggs", "email": "getintouch@greggs.co.uk", "color": 0xF26522, "min_tier": "members", "items": ["Steak Bake", "Vegan Sausage Roll", "Festive Bake"], "towns": ["Newcastle", "London", "Leeds"]},
-    "subway": {"name": "Subway", "email": "support@subway.com", "color": 0x00843D, "min_tier": "members", "items": ["Italian B.M.T.", "Meatball Marinara"], "towns": ["Sheffield", "Bristol", "Nottingham"]},
-    "costa": {"name": "Costa Coffee", "email": "feedback@costa.co.uk", "color": 0x8C1D40, "min_tier": "members", "items": ["Caramel Latte", "Ham & Cheese Toastie"], "towns": ["London", "Manchester", "York"]},
-    "starbucks": {"name": "Starbucks", "email": "customerservice@starbucks.co.uk", "color": 0x00704A, "min_tier": "members", "items": ["Frappuccino", "Chicken Panini"], "towns": ["Bath", "Oxford", "Cambridge"]},
-    "lidl": {"name": "Lidl GB", "email": "customer.services@lidl.co.uk", "color": 0x0050AA, "min_tier": "members", "items": ["Bakery Selection", "Deluxe Grocery Box"], "towns": ["London", "Wimbledon", "Glasgow"]},
-    "aldi": {"name": "Aldi UK", "email": "customer.service@aldi.co.uk", "color": 0x002B66, "min_tier": "members", "items": ["Specially Selected Wine", "Weekly Shop"], "towns": ["Atherstone", "London", "Birmingham"]}
+    "greg": {
+        "name": "Greggs", "email": "getintouch@greggs.co.uk", "color": 0xF26522, "min_tier": "members",
+        "towns": ["Newcastle", "London", "Leeds"],
+        "complaint_template": "I bought a {item} at your {town} shop and it was ice cold in the middle as if it had just been pulled straight from a freezer shelf. Disgusting quality."
+    },
+    "subway": {
+        "name": "Subway", "email": "support@subway.com", "color": 0x00843D, "min_tier": "members",
+        "towns": ["Sheffield", "Bristol", "Nottingham"],
+        "complaint_template": "My {item} order at the {town} store had completely incorrect toppings, stale bread, and the staff were incredibly rude when asked to remake it."
+    },
+    "costa": {
+        "name": "Costa Coffee", "email": "feedback@costa.co.uk", "color": 0x8C1D40, "min_tier": "members",
+        "towns": ["London", "Manchester", "York"],
+        "complaint_template": "My {item} order at your {town} cafe took 30 minutes to make, came out lukewarm, and had coffee grounds floating all through the drink."
+    },
+    "starbucks": {
+        "name": "Starbucks", "email": "customerservice@starbucks.co.uk", "color": 0x00704A, "min_tier": "members",
+        "towns": ["Bath", "Oxford", "Cambridge"],
+        "complaint_template": "Mobile order for a {item} at the {town} branch was completely ignored for 40 minutes while staff chatted behind the counter. Unprofessional service."
+    },
+    "lidl": {
+        "name": "Lidl GB", "email": "customer.services@lidl.co.uk", "color": 0x0050AA, "min_tier": "members",
+        "towns": ["London", "Wimbledon", "Glasgow"],
+        "complaint_template": "The {item} items I bought from the middle aisle at your {town} store stopped working within 24 hours. Your refund desk refused to honor my receipt."
+    },
+    "aldi": {
+        "name": "Aldi UK", "email": "customer.service@aldi.co.uk", "color": 0x002B66, "min_tier": "members",
+        "towns": ["Atherstone", "London", "Birmingham"],
+        "complaint_template": "Checkout staff at your {town} branch slammed my {item} and other groceries down so violently that the packaging split open all over the belt."
+    }
 }
 
 ANGRY_OPENINGS = [
@@ -174,23 +278,28 @@ class SafeTempMail:
 def generate_angry_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
-    item = random.choice(b_data["items"])
-    street = "High Street"
+    
+    # Extract contextual items from previous version structure or fallback list
+    fallback_items = ["Product Order", "Service Item", "Delivery Box"]
+    item = random.choice(fallback_items)
     
     opening = random.choice(ANGRY_OPENINGS)
     closing = random.choice(ANGRY_CLOSINGS)
     signoff = random.choice(SIGN_OFFS)
     consistent_name = fake.name()
     
+    # Generate contextual body matching specific brand topics
+    core_issue = b_data["complaint_template"].format(item=item, town=town)
+    
     email_body = (
         f"{opening}\n\n"
         f"Complainant Details: {consistent_name}\n"
-        f"Branch Location: {b_data['name']}, {street}, {town}\n\n"
-        f"I ordered a {item} at your {town} branch and it was completely spoiled and cold. Unacceptable service.\n\n"
+        f"Branch Location: {b_data['name']}, High Street, {town}\n\n"
+        f"{core_issue}\n\n"
         f"{closing}\n\n"
         f"{signoff}\n{consistent_name}"
     )
-    return email_body, consistent_name, town, street, item
+    return email_body, consistent_name, town, "High Street", item
 
 def create_email_image(sender, recipient, subject, body, brand_color="#F26522", output_path="sent_complaint.png"):
     width, height = 800, 520
