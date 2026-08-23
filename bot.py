@@ -1,7 +1,5 @@
 import os
 import random
-import smtplib
-from email.message import EmailMessage
 import asyncio
 import threading
 import json
@@ -11,6 +9,7 @@ import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
+import resend
 
 # --- Flask Tiny Web Server ---
 app = Flask(__name__)
@@ -23,10 +22,8 @@ def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
-SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-AUTH_EMAIL = os.getenv("SENDER_EMAIL")     
-AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD") 
+# Configure Resend API Key for HTTP-based email delivery
+resend.api_key = os.getenv("RESEND_API_KEY")
 
 fake = Faker("en_GB")
 
@@ -228,21 +225,24 @@ async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, stat
     max_wait = 86400 
     b_name = BRANDS[brand_key]["name"]
 
-    while elapsed < max_wait:
-        await asyncio.sleep(300)
-        elapsed += 300
-        incoming_msg = temp_email.check_inbox()
-        if incoming_msg:
-            reward = round(random.uniform(5.00, 15.00), 2)
-            add_user_balance(user_id, reward)
-            add_user_voucher(user_id, username, b_name, reward)
-            await status_message.channel.send(f"🚨 **{b_name} Support resolved ticket for <@{user_id}>! £{reward:.2f} credited!** Type `!redeem`")
-            return
+    try:
+        while elapsed < max_wait:
+            await asyncio.sleep(300)
+            elapsed += 300
+            incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
+            if incoming_msg:
+                reward = round(random.uniform(5.00, 15.00), 2)
+                add_user_balance(user_id, reward)
+                add_user_voucher(user_id, username, b_name, reward)
+                await status_message.channel.send(f"🚨 **{b_name} Support resolved ticket for <@{user_id}>! £{reward:.2f} credited!** Type `!redeem`")
+                return
 
-    fallback = 10.00
-    add_user_balance(user_id, fallback)
-    add_user_voucher(user_id, username, b_name, fallback)
-    await status_message.channel.send(f"⏰ **Ticket Expired:** {b_name} bonus `£{fallback:.2f}` credited to <@{user_id}>.")
+        fallback = 10.00
+        add_user_balance(user_id, fallback)
+        add_user_voucher(user_id, username, b_name, fallback)
+        await status_message.channel.send(f"⏰ **Ticket Expired:** {b_name} bonus `£{fallback:.2f}` credited to <@{user_id}>.")
+    except Exception as e:
+        print(f"Inbox watcher error: {e}")
 
 def has_user_access(user_roles, required_tier):
     role_ids_list = [r.id for r in user_roles]
@@ -264,7 +264,7 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
-# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS ---
+# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (RESEND HTTP API) ---
 def register_brand_command(b_key):
     @bot.command(name=b_key)
     async def brand_command(ctx):
@@ -285,17 +285,18 @@ def register_brand_command(b_key):
 
         await ctx.send(f"🔥 **{b_info['name']}**: Ticket dispatched via `{burner_address}`", file=sent_file)
 
-        try:
-            msg = EmailMessage()
-            msg["Subject"] = subject_line 
-            msg["From"] = burner_address 
-            msg["To"] = b_info["email"]
-            msg["Reply-To"] = burner_address 
-            msg.set_content(email_body)
+        def send_resend_task():
+            params = {
+                "from": "Grievance Bot <onboarding@resend.dev>",
+                "to": [b_info["email"]],
+                "subject": subject_line,
+                "text": email_body,
+                "reply_to": burner_address
+            }
+            resend.Emails.send(params)
 
-            with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
-                server.login(AUTH_EMAIL, AUTH_PASSWORD)
-                server.send_message(msg, from_addr=AUTH_EMAIL, to_addrs=[b_info["email"]])
+        try:
+            await asyncio.to_thread(send_resend_task)
         except Exception as e:
             await ctx.send(f"❌ Failed to dispatch email: {e}")
             return
