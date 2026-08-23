@@ -4,3 +4,4 @@ gunicorn
 pillow
 tempmail-python
 flask
+resend
