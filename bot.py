@@ -339,6 +339,11 @@ def has_user_access(user_roles, required_tier):
 @bot.command(name="voucher", aliases=["wallet", "vouchers"])
 async def show_voucher_wallet(ctx):
     """Displays all your requests, balances, and highlights which ones are ready to use."""
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
     data = load_economy()
     uid = str(ctx.author.id)
     
@@ -378,6 +383,11 @@ async def show_voucher_wallet(ctx):
 @bot.command(name="Qvouch")
 async def quick_vouch(ctx, brand_query: str = None):
     """Pulls a harvested voucher from the bot's reserve pool. Says sorry if none are available."""
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
     if not brand_query:
         valid_b = ", ".join(BRANDS.keys())
         await ctx.send(f"⚠️ Usage: `!Qvouch [brand]`\nAvailable brands: `{valid_b}`")
@@ -419,6 +429,11 @@ async def quick_vouch(ctx, brand_query: str = None):
 def register_brand_command(b_key):
     @bot.command(name=b_key)
     async def brand_command(ctx):
+        try:
+            await ctx.message.delete()
+        except Exception:
+            pass
+
         b_info = BRANDS[b_key]
         required_tier = b_info.get("min_tier", "members")
 
@@ -468,6 +483,11 @@ for brand_key in BRANDS.keys():
 
 @bot.command(name="brands")
 async def list_brands(ctx):
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
     embed = discord.Embed(title="📋 Available Company Directory", color=0x3498DB)
     for tier_name in ["privates", "exclusive", "vips", "og", "members"]:
         brand_keys = [k for k, v in BRANDS.items() if v.get("min_tier") == tier_name]
