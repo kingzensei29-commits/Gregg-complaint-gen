@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Persistent Pipeline Code-Brain is online!"
+    return "🟢 Mistral Detailed Grievance Code-Brain is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -187,9 +187,9 @@ def generate_mistral_complaint(brand_key):
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I am thoroughly disgusted with the appalling service at your {town} branch."
-        email_body = f"Dear Support Team,\n\nMy name is {consistent_name}. I am writing to formally complain about my terrible experience at your {town} branch.\n\n{fallback_issue}\n\nI expect a generous goodwill gift voucher.\n\nRegards,\n{consistent_name}"
-        return email_body, consistent_name, town, f"Unacceptable experience at {town} branch"
+        fallback_issue = f"I visited your {town} branch on Tuesday and purchased several items, but discovered upon arriving home that they were completely damaged and unusable due to careless handling."
+        email_body = f"Dear Support Team,\n\nMy name is {consistent_name}. I am writing to formally log a serious complaint regarding my recent transaction at your {town} store.\n\n{fallback_issue}\n\nThis is completely unacceptable for a brand of your reputation. I expect a prompt goodwill voucher or full compensation.\n\nRegards,\n{consistent_name}"
+        return email_body, consistent_name, town, f"Unacceptable product condition at {town} branch"
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -197,13 +197,13 @@ def generate_mistral_complaint(brand_key):
     }
     
     prompt = (
-        f"You are an irate, genuinely furious UK customer writing a formal complaint email to customer relations for the brand '{b_data['name']}'. "
-        f"The incident occurred at their physical store or via delivery in {town}. "
-        f"STRICT RULES:\n"
-        f"1. Reference specific realistic items sold by '{b_data['name']}' that were ruined, faulty, or missing.\n"
-        f"2. Tone must be deeply angry, highly critical, and completely human.\n"
-        f"3. Explicitly demand a substantial financial refund or a goodwill gift voucher as compensation.\n"
-        f"4. ABSOLUTE CONSTRAINT: NEVER mention receipts, paper proof, transaction numbers, or having physical evidence.\n"
+        f"You are writing a deeply detailed, highly frustrated formal customer complaint email to consumer relations for the brand '{b_data['name']}'. "
+        f"The incident took place at the physical store or via delivery in {town}. "
+        f"STRICT DIRECTIVES FOR REASONS & REALISM:\n"
+        f"1. Invent specific, highly plausible product failures (e.g., missing essential components, items arriving completely crushed/spoiled, incorrect sizing/variants delivered, or awful customer service behavior from staff members at that location).\n"
+        f"2. Write in a genuinely irate, highly articulate human tone detailing the exact inconvenience caused.\n"
+        f"3. Demand appropriate compensation or a high-value goodwill gesture/gift voucher.\n"
+        f"4. ABSOLUTE CONSTRAINT: NEVER mention paper receipts, physical transaction numbers, or having physical proof.\n"
         f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
         f"6. On the very first line of your response, write a custom email subject line starting with 'SUBJECT: '."
     )
@@ -212,7 +212,7 @@ def generate_mistral_complaint(brand_key):
         "model": "mistral-small-latest",
         "messages": [{"role": "user", "content": prompt}],
         "temperature": 0.95,
-        "max_tokens": 400
+        "max_tokens": 450
     }
 
     try:
@@ -221,7 +221,7 @@ def generate_mistral_complaint(brand_key):
             result_json = response.json()
             content = result_json["choices"][0]["message"]["content"].strip()
             lines = content.splitlines()
-            subject_line = f"Absolute shambles at your {town} branch"
+            subject_line = f"Appalling service and faulty items from your {town} branch"
             body_lines = lines
             if lines and lines[0].lower().startswith("subject:"):
                 subject_line = lines[0].split(":", 1)[1].strip()
@@ -230,7 +230,7 @@ def generate_mistral_complaint(brand_key):
     except Exception:
         pass
 
-    return f"Terrible service at {town}. I demand a voucher.", consistent_name, town, "Complaint"
+    return f"Terrible experience at {town}. Unusable items received, demanding resolution.", consistent_name, town, "Severe complaint regarding recent order"
 
 def ask_mistral_chatbot(user_query, author_name, author_id):
     api_key = os.getenv("MISTRAL_API_KEY")
@@ -380,7 +380,6 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
 async def on_ready():
     print(f"Logged in as {bot.user.name} | Resuming persistent pipelines...")
     
-    # Automatically restore and resume any active pipelines from disk storage after a reboot/update
     pipelines = load_persistent_pipelines()
     if pipelines:
         print(f"🔄 Restoring {len(pipelines)} ongoing pipeline verification loops from persistent storage...")
