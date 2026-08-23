@@ -264,18 +264,18 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
-# --- DYNAMICALLY REGISTER INDIVIDUAL BRAND COMMANDS (NO NUMBERS REQUIRED) ---
-for brand_key, b_data in BRANDS.items():
-    @bot.command(name=brand_key)
-    async def brand_command(ctx, *, brand_k=brand_key):
-        b_info = BRANDS[brand_k]
+# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS ---
+def register_brand_command(b_key):
+    @bot.command(name=b_key)
+    async def brand_command(ctx):
+        b_info = BRANDS[b_key]
         required_tier = b_info.get("min_tier", "members")
 
         if not has_user_access(ctx.author.roles, required_tier) and not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status or higher to use `!{brand_k}`.", delete_after=10)
+            await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status or higher to use `!{b_key}`.", delete_after=10)
             return
 
-        email_body, complaint_name, town, street, item = generate_angry_complaint(brand_k)
+        email_body, complaint_name, town, street, item = generate_angry_complaint(b_key)
         temp_email = SafeTempMail(forced_name=complaint_name)
         burner_address = temp_email.address
         subject_line = f"Formal Complaint regarding service at {town} branch"
@@ -287,7 +287,7 @@ for brand_key, b_data in BRANDS.items():
 
         try:
             msg = EmailMessage()
-            msg["Subject"] = subject_line  # Fixed dictionary assignment
+            msg["Subject"] = subject_line 
             msg["From"] = burner_address 
             msg["To"] = b_info["email"]
             msg["Reply-To"] = burner_address 
@@ -301,7 +301,11 @@ for brand_key, b_data in BRANDS.items():
             return
 
         status_message = await ctx.send(f"⏳ Monitoring response inbox for `{burner_address}`...")
-        bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, brand_k, temp_email, status_message, burner_address))
+        bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, b_key, temp_email, status_message, burner_address))
+
+# Register all brand commands securely using the factory
+for brand_key in BRANDS.keys():
+    register_brand_command(brand_key)
 
 # --- BULK GENERATION COMMAND (OGs and Above, accepts numbers) ---
 @bot.command(name="bulkgen")
