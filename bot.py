@@ -324,8 +324,8 @@ async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, te
             file = discord.File(img_path, filename="support_reply.png")
             
             await status_message.channel.send(
-                f"🚨 **{b_name} Support resolved your ticket for {ctx.author.mention}!**\n"
-                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` to check your unique voucher codes.",
+                f"🚨 **{b_name} Support resolved your ticket for <@{user_id}>!**\n"
+                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` to check your unique voucher codes privately via DM.",
                 file=file
             )
             return
@@ -335,7 +335,7 @@ async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, te
     add_user_voucher(user_id, username, b_name, fallback_reward)
     await status_message.channel.send(
         f"⏰ **Ticket Window Expired:** {b_name} automatic resolution completed for `{burner_address}`.\n"
-        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` deposited for {ctx.author.mention}! Type `!redeem` to view vouchers."
+        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` deposited for <@{user_id}>! Type `!redeem` to view vouchers."
     )
 
 
@@ -410,49 +410,88 @@ async def kfc(ctx, action: str = None):
         await ctx.send("⚠️ Usage: Type `!kfc gen` to file a KFC complaint, or `!redeem` to check your vouchers.")
 
 
+# --- Secure Ownership-Checked Redeem Command ---
 @bot.command(name="redeem", aliases=["voucher"])
-async def redeem_vouchers(ctx, voucher_code: str = None):
+async def redeem_vouchers(ctx, *, voucher_code: str = None):
     data = load_economy()
-    uid = str(ctx.author.id)
-    user_data = data.get(uid, {"balance": 0.0, "vouchers": []})
-    
+    caller_uid = str(ctx.author.id)
+
+    # Delete the command message in the public channel instantly for privacy
+    try:
+        await ctx.message.delete()
+    except Exception:
+        pass
+
+    # If a specific voucher code was provided, search all users to find who owns it
+    if voucher_code:
+        target_voucher = None
+        owner_uid = None
+        target_idx = -1
+        search_code = voucher_code.strip().upper()
+
+        for uid, user_data in data.items():
+            for idx, v in enumerate(user_data.get("vouchers", [])):
+                if v["code"].upper() == search_code:
+                    target_voucher = v
+                    owner_uid = uid
+                    target_idx = idx
+                    break
+            if target_voucher:
+                break
+
+        # Verification: Check if code exists and if the caller owns it
+        if target_voucher and owner_uid == caller_uid:
+            # Matches owner! Remove voucher and approve
+            data[owner_uid]["vouchers"].pop(target_idx)
+            save_economy(data)
+
+            embed = discord.Embed(
+                title="✅ VOUCHER APPROVED & REDEEMED",
+                description=(
+                    f"**Status:** Approved ✅\n"
+                    f"**Redeemed By:** {ctx.author.mention}\n"
+                    f"**Item:** {target_voucher['name']}\n"
+                    f"**Value:** `£{target_voucher['value']:.2f}`\n"
+                    f"**Code:** `{target_voucher['code']}`\n\n"
+                    f"*This voucher has now been permanently processed and removed from your wallet.*"
+                ),
+                color=0x2ECC71 # Green embed
+            )
+            try:
+                await ctx.author.send(embed=embed)
+            except Exception:
+                await ctx.send(f"{ctx.author.mention}, your voucher was approved, but please open your DMs!", delete_after=10)
+            return
+
+        else:
+            # Either doesn't exist or belongs to someone else (Declined)
+            embed = discord.Embed(
+                title="❌ VOUCHER DECLINED",
+                description=(
+                    f"**Status:** Declined 🚫\n"
+                    f"**Reason:** Code invalid, already used, or does not belong to your account ID.\n"
+                    f"**Attempted Code:** `{voucher_code}`"
+                ),
+                color=0xE74C3C # Red embed
+            )
+            try:
+                await ctx.author.send(embed=embed)
+            except Exception:
+                await ctx.send(f"{ctx.author.mention}, that voucher code was declined (invalid or unauthorized).", delete_after=10)
+            return
+
+    # Otherwise, show their entire voucher wallet in their DMs
+    user_data = data.get(caller_uid, {"balance": 0.0, "vouchers": []})
     balance = user_data["balance"]
     vouchers = user_data["vouchers"]
 
-    # If a specific voucher code was provided, look it up and cash it out
-    if voucher_code:
-        target_voucher = None
-        target_idx = -1
-        for idx, v in enumerate(vouchers):
-            if v["code"].upper() == voucher_code.upper():
-                target_voucher = v
-                target_idx = idx
-                break
-        
-        if target_voucher:
-            vouchers.pop(target_idx)
-            save_economy(data)
-            
-            await ctx.send(
-                f"🎉 {ctx.author.mention} **Successfully Redeemed Voucher!**\n"
-                f"🎁 **Item:** {target_voucher['name']}\n"
-                f"💵 **Value:** £{target_voucher['value']:.2f}\n"
-                f"🏷️ **Active Barcode Code:** `{target_voucher['code']}`\n"
-                f"*(Show this code at the counter. Bound exclusively to your account.)*"
-            )
-            return
-        else:
-            await ctx.send(f"❌ Error: Voucher code `{voucher_code}` was not found in your inventory or is invalid.", delete_after=10)
-            return
-
-    # Otherwise, display the user's personal vouchers ephemerally (visible ONLY to them)
     embed = discord.Embed(
         title="🛒 Your Personal Voucher Wallet",
         description=(
-            f"**Account Holder:** {ctx.author.mention}\n"
+            f"**Account Holder:** {ctx.author.name}\n"
             f"**Total Balance:** `£{balance:.2f}`\n"
             f"**Saved Vouchers:** `{len(vouchers)}`\n\n"
-            f"*(To redeem a voucher and generate your scannable code, type `!redeem [VOUCHER_CODE]`)*"
+            f"*(To redeem a voucher, type `!redeem [VOUCHER_CODE]`)*"
         ),
         color=0x3498DB
     )
@@ -463,7 +502,11 @@ async def redeem_vouchers(ctx, voucher_code: str = None):
     else:
         embed.add_field(name="🎁 Your Unique Vouchers", value="*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, or `!kfc gen`!*", inline=False)
 
-    await ctx.reply(embed=embed, ephemeral=True)
+    try:
+        await ctx.author.send(embed=embed)
+        await ctx.send(f"📬 {ctx.author.mention}, I've sent your voucher wallet to your DMs!", delete_after=5)
+    except Exception:
+        await ctx.send(f"❌ {ctx.author.mention}, please enable your DMs so I can send you your private voucher wallet!", delete_after=10)
 
 
 if __name__ == "__main__":
