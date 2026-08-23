@@ -2,3 +2,4 @@ discord.py
 faker
 gunicorn
 pillow
+tempmail-python
