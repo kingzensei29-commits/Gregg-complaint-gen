@@ -3,3 +3,4 @@ faker
 gunicorn
 pillow
 tempmail-python
+flask
