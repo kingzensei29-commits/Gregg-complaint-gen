@@ -2,18 +2,17 @@ import os
 import random
 import smtplib
 from email.message import EmailMessage
+import asyncio
 import discord
 from discord.ext import commands
 from faker import Faker
 from tempmail import EMail  # Free temporary email generator
 from PIL import Image, ImageDraw, ImageFont
 
-# --- SMTP Config (Background transporter credentials) ---
-# Even though Gmail handles the transmission line, the message headers 
-# will be stamped with your temporary burner address.
+# --- SMTP Config ---
 SMTP_SERVER = os.getenv("SMTP_SERVER", "smtp.gmail.com")
 SMTP_PORT = int(os.getenv("SMTP_PORT", 465))
-AUTH_EMAIL = os.getenv("SENDER_EMAIL")     # Your actual Gmail login (hidden from Greggs)
+AUTH_EMAIL = os.getenv("SENDER_EMAIL")     # Your background Gmail login
 AUTH_PASSWORD = os.getenv("EMAIL_PASSWORD") # Your App Password
 
 GREGGS_SUPPORT_EMAIL = "getintouch@greggs.co.uk"
@@ -22,6 +21,20 @@ fake = Faker("en_GB")
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
+
+ITEMS = [
+    "Steak Bake", "Vegan Sausage Roll", "Festive Bake", 
+    "Sausage, Bean & Cheese Melt", "Yum Yum", "Caramel Custard Doughnut"
+]
+TRAGEDIES = [
+    "It was structurally compromised and collapsed into my lap upon first bite.",
+    "The pastry-to-filling ratio was mathematically offensive to baking standards.",
+    "It was inexplicably cold in the middle, ruining my morning commute.",
+]
+DEMANDS = [
+    "I expect a swift resolution and complimentary baked goods.",
+    "I demand a full inquiry into this specific branch's oven temperatures.",
+]
 
 
 def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
@@ -51,6 +64,37 @@ def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
     return output_path
 
 
+async def watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200):
+    """
+    Background watcher that checks for a reply over an extended period 
+    (Default: 7200 seconds = 2 hours) without freezing the bot command handler.
+    """
+    elapsed = 0
+    check_interval = 30  # Check every 30 seconds
+
+    while elapsed < max_wait_seconds:
+        await asyncio.sleep(check_interval)
+        elapsed += check_interval
+
+        try:
+            # Non-blocking or quick check for messages
+            incoming_msg = temp_email.get_message() # Checks current inbox state
+            if incoming_msg:
+                subject = incoming_msg.subject
+                sender = incoming_msg.from_addr
+                body = incoming_msg.body
+                
+                img_path = create_reply_image(sender, subject, body[:700])
+                file = discord.File(img_path, filename="greggs_reply.png")
+                await ctx.send(f"🚨 **Greggs support has replied to your burner email, {ctx.author.mention}!**", file=file)
+                return
+        except Exception:
+            # Keep trying quietly if network blips occur
+            continue
+
+    await ctx.send(f"⏰ **Timed out:** Greggs did not reply within the 2-hour window for burner inbox `{temp_email.address}`.")
+
+
 @bot.event
 async def on_ready():
     print(f"Logged in successfully as {bot.user}")
@@ -62,61 +106,43 @@ async def gregger(ctx):
     temp_email = EMail()
     burner_address = temp_email.address
     
-    item = random.choice(ITEMS) if 'ITEMS' in globals() else "Steak Bake"
+    item = random.choice(ITEMS)
     town = fake.city()
     name = fake.name()
     street = fake.street_address()
+    tragedy = random.choice(TRAGEDIES)
+    demand = random.choice(DEMANDS)
 
     await ctx.send(f"✉️ **Burner inbox generated:** `{burner_address}`\nDispatching complaint to Greggs...")
 
-    # 2. Build email headers where the FROM address is explicitly the temporary email
+    # 2. Build email headers
     msg = EmailMessage()
     msg.set_subject(f"Grievance regarding a {item} - {town} Branch")
-    
-    # This sets the visible sender to Greggs as your temporary burner address
     msg["From"] = burner_address 
     msg["To"] = GREGGS_SUPPORT_EMAIL
     msg["Reply-To"] = burner_address 
     
     email_body = (
         f"Dear Customer Care,\n\n"
-        f"I visited your {town} branch ({street}) and purchased a {item}. "
-        f"It was structurally compromised and entirely unacceptable.\n\n"
-        f"I expect a swift resolution and complimentary baked goods.\n\n"
+        f"I visited your {town} branch ({street}) and purchased a {item}. {tragedy}\n\n"
+        f"{demand}\n\n"
         f"Yours sincerely,\n{name}"
     )
     msg.set_content(email_body)
 
-    # 3. Send out via SMTP (Authenticated via your background credentials, 
-    # but delivering the message with the burner 'From' address stamped on it)
+    # 3. Send out via SMTP
     try:
         with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
             server.login(AUTH_EMAIL, AUTH_PASSWORD)
-            # Pass AUTH_EMAIL as the envelope sender, and msg['From'] (burner) as the header source
             server.send_message(msg, from_addr=AUTH_EMAIL, to_addrs=[GREGGS_SUPPORT_EMAIL])
     except Exception as e:
         await ctx.send(f"❌ Failed to dispatch email: {e}")
         return
 
-    await ctx.send("⏳ Complaint sent! Listening for Greggs response in the server (waiting up to 90 seconds)...")
+    await ctx.send("⏳ Complaint sent successfully! I am now quietly monitoring the burner inbox in the background (giving Greggs up to **2 hours** to reply).")
 
-    # 4. Wait for incoming mail on the burner inbox
-    try:
-        incoming_msg = temp_email.wait_for_message(timeout=90)
-        
-        if incoming_msg:
-            subject = incoming_msg.subject
-            sender = incoming_msg.from_addr
-            body = incoming_msg.body
-            
-            img_path = create_reply_image(sender, subject, body[:700])
-            file = discord.File(img_path, filename="greggs_reply.png")
-            await ctx.send("🚨 **Greggs support has replied!**", file=file)
-        else:
-            await ctx.send("⏰ Timed out: Greggs did not reply within 90 seconds.")
-            
-    except Exception as e:
-        await ctx.send(f"⚠️ Error while listening for reply: {e}")
+    # 4. Spin up the background watcher task so the bot stays fully responsive
+    bot.loop.create_task(watch_burner_inbox(temp_email, ctx, max_wait_seconds=7200))
 
 
 if __name__ == "__main__":
