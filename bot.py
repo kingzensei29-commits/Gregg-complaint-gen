@@ -67,7 +67,7 @@ def add_user_balance(user_id, amount):
     save_economy(data)
     return data[uid]["balance"]
 
-def add_user_voucher(user_id, username, brand_name, value, custom_code):
+def add_user_voucher(user_id, username, brand_name, value, custom_code, status="Ready to Use"):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
@@ -75,8 +75,9 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code):
     
     data[uid]["vouchers"].append({
         "code": custom_code,
-        "name": f"{brand_name} Compensation Voucher",
-        "value": value
+        "name": f"{brand_name} Voucher",
+        "value": value,
+        "status": status  # "Ready to Use" or "Pending / Processing"
     })
     save_economy(data)
 
@@ -280,7 +281,6 @@ async def harvest_vouchers_task():
 
             await asyncio.to_thread(send_brevo)
             
-            # Poll inbox to catch real email responses containing actual codes/links sent back
             for _ in range(3):
                 await asyncio.sleep(60)
                 incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
@@ -310,8 +310,8 @@ async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, stat
                 reward = round(random.uniform(5.00, 20.00), 2)
                 code = f"{b_name[:4].upper()}-LIVE-{random.randint(10000, 99999)}"
                 add_user_balance(user_id, reward)
-                add_user_voucher(user_id, username, b_name, reward, code)
-                await status_message.channel.send(f"🚨 **Real reply received from {b_name} for <@{user_id}>! Voucher code `{code}` (£{reward:.2f}) logged!**")
+                add_user_voucher(user_id, username, b_name, reward, code, status="Ready to Use")
+                await status_message.channel.send(f"🚨 **Real reply received from {b_name} for <@{user_id}>! Voucher code `{code}` (£{reward:.2f}) is now Ready to Use!**")
                 return
 
         await status_message.channel.send(f"⏰ **Ticket Timeout:** No real reply came back from {b_name} within the time limit for <@{user_id}>.")
@@ -335,18 +335,43 @@ def has_user_access(user_roles, required_tier):
         return user_has_privates or user_has_exclusive or user_has_vips or user_has_og
     return True 
 
-# --- ECONOMY COMMANDS ---
-@bot.command(name="vouchers")
-async def show_vouchers(ctx):
+# --- MERGED VOUCHER & WALLET COMMAND ---
+@bot.command(name="voucher", aliases=["wallet", "vouchers"])
+async def show_voucher_wallet(ctx):
+    """Displays all your requests, balances, and highlights which ones are ready to use."""
     data = load_economy()
     uid = str(ctx.author.id)
-    if uid not in data or not data[uid]["vouchers"]:
-        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. Use `!Qvouch [brand]` to pull one from the harvested stock!")
+    
+    if uid not in data or (not data[uid]["vouchers"] and data[uid]["balance"] <= 0):
+        await ctx.send(f"📦 {ctx.author.mention}, your account ledger is empty! File a complaint using a brand command or pull available stock with `!Qvouch [brand]`.")
         return
 
-    embed = discord.Embed(title=f"🎟️ {ctx.author.name}'s Verified Vouchers", color=0x2ECC71)
-    for v in data[uid]["vouchers"]:
-        embed.add_field(name=v["name"], value=f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**", inline=False)
+    balance = data[uid].get("balance", 0.0)
+    vouchers = data[uid].get("vouchers", [])
+
+    embed = discord.Embed(
+        title=f"💳 {ctx.author.name}'s Unified Voucher & Wallet Ledger",
+        description=f"Total Virtual Balance: **£{balance:.2f}**",
+        color=0x3498DB
+    )
+
+    if not vouchers:
+        embed.add_field(name="Logged Requests", value="No individual voucher codes claimed yet.", inline=False)
+    else:
+        ready_count = 0
+        for i, v in enumerate(vouchers, 1):
+            status = v.get("status", "Ready to Use")
+            if status == "Ready to Use":
+                status_icon = "🟢 **Ready to Use**"
+                ready_count += 1
+            else:
+                status_icon = "⏳ **Pending / Processing**"
+
+            field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: {status_icon}"
+            embed.add_field(name=f"Request #{i}: {v['name']}", value=field_value, inline=False)
+
+        embed.set_footer(text=f"Summary: {ready_count} out of {len(vouchers)} voucher(s) are ready to use.")
+
     await ctx.send(embed=embed)
 
 # --- QVOUCH COMMAND WITH STOCK CHECK ---
@@ -365,12 +390,10 @@ async def quick_vouch(ctx, brand_query: str = None):
 
     shared_data = load_shared_vouchers()
     
-    # Check if real vouchers are stocked up for this brand
     if b_key not in shared_data or not shared_data[b_key]:
         await ctx.send(f"❌ Sorry, **none available** right now for `{BRANDS[b_key]['name']}`! The background bot is still harvesting responses—try again later.")
         return
 
-    # Pop the next real voucher out of the stock pool
     v_item = shared_data[b_key].pop(0)
     save_shared_vouchers(shared_data)
     
@@ -379,7 +402,7 @@ async def quick_vouch(ctx, brand_query: str = None):
     b_name = v_item["brand_name"]
 
     add_user_balance(ctx.author.id, val)
-    add_user_voucher(ctx.author.id, ctx.author.name, b_name, val, custom_code=code)
+    add_user_voucher(ctx.author.id, ctx.author.name, b_name, val, custom_code=code, status="Ready to Use")
 
     embed = discord.Embed(
         title=f"🎟️ Claimed Stock Voucher: {b_name}",
@@ -388,7 +411,7 @@ async def quick_vouch(ctx, brand_query: str = None):
     )
     embed.add_field(name="Voucher Code", value=f"`{code}`", inline=False)
     embed.add_field(name="Value", value=f"**£{val:.2f}**", inline=False)
-    embed.set_footer(text="Added to your inventory (`!vouchers`).")
+    embed.set_footer(text="Added to your ledger (`!voucher`). Status: Ready to Use.")
     
     await ctx.send(embed=embed)
 
@@ -408,10 +431,13 @@ def register_brand_command(b_key):
         burner_address = temp_email.address
         subject_line = f"Formal Complaint regarding service at {town} branch"
 
+        # Log it as pending in their ledger initially when they file the request
+        add_user_voucher(ctx.author.id, ctx.author.name, b_info["name"], 0.00, f"PENDING-{random.randint(1000,9999)}", status="Pending / Processing")
+
         sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
         sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-        await ctx.send(f"🔥 **{b_info['name']}**: Ticket sent via `{burner_address}`", file=sent_file)
+        await ctx.send(f"🔥 **{b_info['name']}**: Ticket sent via `{burner_address}` (Logged as Pending in your `!voucher` ledger)", file=sent_file)
 
         def send_brevo_email():
             api_key = os.getenv("BREVO_API_KEY")
