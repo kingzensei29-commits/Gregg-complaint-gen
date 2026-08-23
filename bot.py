@@ -66,13 +66,25 @@ def add_user_balance(user_id, amount):
     save_economy(data)
     return data[uid]["balance"]
 
-def add_user_voucher(user_id, voucher_name, value):
+def add_user_voucher(user_id, username, brand_name, value):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
-        data[uid]["balance"] = 0.0
-        data[uid]["vouchers"] = []
-    data[uid]["vouchers"].append({"name": voucher_name, "value": value})
+        data[uid] = {"balance": 0.0, "vouchers": []}
+    
+    # Create a unique code embedding part of the user's name
+    clean_name = "".join(filter(str.isalnum, username)).upper()[:4]
+    if not clean_name:
+        clean_name = "USER"
+    rand_suffix = random.randint(1000, 9999)
+    prefix = brand_name[:4].upper()
+    voucher_code = f"{prefix}-{clean_name}-{rand_suffix}"
+
+    data[uid]["vouchers"].append({
+        "code": voucher_code,
+        "name": f"{brand_name} Compensation Voucher",
+        "value": value
+    })
     save_economy(data)
 
 # --- BRAND DATABASES & CONFIGS ---
@@ -275,7 +287,7 @@ def build_emoji_progress_bar(progress_percent, total_blocks=10):
     return "🟥" * filled_blocks + "⬛" * empty_blocks + f" **{progress_percent}%**"
 
 
-async def watch_burner_inbox_with_progress(ctx, user_id, brand_key, temp_email, status_message, burner_address, max_wait_seconds=259200):
+async def watch_burner_inbox_with_progress(ctx, user_id, username, brand_key, temp_email, status_message, burner_address, max_wait_seconds=259200):
     elapsed = 0
     check_interval = 300 
     b_name = BRANDS[brand_key]["name"]
@@ -306,63 +318,25 @@ async def watch_burner_inbox_with_progress(ctx, user_id, brand_key, temp_email, 
             
             reward_amount = round(random.uniform(5.00, 15.00), 2)
             add_user_balance(user_id, reward_amount)
-            add_user_voucher(user_id, f"{b_name} Verified Compensation", reward_amount)
+            add_user_voucher(user_id, username, b_name, reward_amount)
 
             img_path = create_reply_image(sender, subject, body[:700], brand_color="#F26522" if brand_key=="greg" else ("#78BE20" if brand_key=="asda" else "#F42A41"))
             file = discord.File(img_path, filename="support_reply.png")
             
             await status_message.channel.send(
-                f"🚨 **{b_name} Support resolved your ticket!**\n"
-                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` to claim your barcode.",
+                f"🚨 **{b_name} Support resolved your ticket for {ctx.author.mention}!**\n"
+                f"💰 **Compensation Credited:** `£{reward_amount:.2f}` added! Type `!redeem` privately to view your unique voucher code.",
                 file=file
             )
             return
 
     fallback_reward = 10.00
     add_user_balance(user_id, fallback_reward)
-    add_user_voucher(user_id, f"{b_name} Priority Voucher", fallback_reward)
+    add_user_voucher(user_id, username, b_name, fallback_reward)
     await status_message.channel.send(
         f"⏰ **Ticket Window Expired:** {b_name} automatic resolution completed for `{burner_address}`.\n"
-        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` deposited! Type `!redeem` to view vouchers."
+        f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` deposited for {ctx.author.mention}! Type `!redeem` to view vouchers."
     )
-
-
-class VoucherRedeemSelect(discord.ui.Select):
-    def __init__(self, vouchers):
-        options = []
-        for idx, v in enumerate(vouchers[:25]): 
-            options.append(discord.SelectOption(
-                label=f"{v['name']} (£{v['value']:.2f})", 
-                value=str(idx),
-                description="Click to generate barcode & redeem instantly!"
-            ))
-        super().__init__(placeholder="Select a voucher to redeem...", min_values=1, max_values=1, options=options)
-
-    async def callback(self, interaction: discord.Interaction):
-        idx = int(self.values[0])
-        data = load_economy()
-        uid = str(interaction.user.id)
-        
-        if uid in data and len(data[uid]["vouchers"]) > idx:
-            voucher = data[uid]["vouchers"].pop(idx)
-            save_economy(data)
-            
-            await interaction.response.send_message(
-                f"🎉 **Voucher Successfully Redeemed!**\n"
-                f"🎁 **Item:** {voucher['name']}\n"
-                f"💵 **Value:** £{voucher['value']:.2f}\n"
-                f"🏷️ **Redemption Code:** `VOUCH-{random.randint(100000, 999999)}-UK`\n"
-                f"*(Show this barcode code at any counter!)*",
-                ephemeral=True
-            )
-        else:
-            await interaction.response.send_message("❌ Voucher already claimed or invalid.", ephemeral=True)
-
-
-class VoucherRedeemView(discord.ui.View):
-    def __init__(self, vouchers):
-        super().__init__(timeout=60)
-        self.add_item(VoucherRedeemSelect(vouchers))
 
 
 @bot.event
@@ -411,7 +385,7 @@ async def handle_complaint(ctx, brand_key):
         f"{build_emoji_progress_bar(0)}"
     )
 
-    bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, brand_key, temp_email, status_message, burner_address, max_wait_seconds=259200))
+    bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, ctx.author.name, brand_key, temp_email, status_message, burner_address, max_wait_seconds=259200))
 
 
 @bot.command(name="greg")
@@ -437,33 +411,67 @@ async def kfc(ctx, action: str = None):
 
 
 @bot.command(name="redeem", aliases=["voucher"])
-async def redeem_vouchers(ctx):
+async def redeem_vouchers(ctx, voucher_code: str = None):
     data = load_economy()
     uid = str(ctx.author.id)
     user_data = data.get(uid, {"balance": 0.0, "vouchers": []})
     
     balance = user_data["balance"]
     vouchers = user_data["vouchers"]
-    
-    embed = discord.Embed(
-        title="🛒 Universal Voucher Redemption Centre",
-        description=(
-            f"**Account Holder:** {ctx.author.mention}\n"
+
+    # If a specific voucher code was provided, look it up and cash it out privately
+    if voucher_code:
+        target_voucher = None
+        target_idx = -1
+        for idx, v in enumerate(vouchers):
+            if v["code"].upper() == voucher_code.upper():
+                target_voucher = v
+                target_idx = idx
+                break
+        
+        if target_voucher:
+            # Remove voucher from inventory
+            vouchers.pop(target_idx)
+            save_economy(data)
+            
+            await ctx.message.delete() # Clean up chat command for privacy
+            await ctx.author.send(
+                f"🎉 **Voucher Successfully Claimed!**\n"
+                f"🎁 **Item:** {target_voucher['name']}\n"
+                f"💵 **Value:** £{target_voucher['value']:.2f}\n"
+                f"🏷️ **Unique Barcode Code:** `{target_voucher['code']}`\n"
+                f"*(Show this barcode code at any counter! This code is bound exclusively to your account.)*"
+            )
+            return
+        else:
+            await ctx.send(f"❌ Error: Voucher code `{voucher_code}` was not found in your inventory or is invalid.", delete_after=10)
+            return
+
+    # Otherwise, display the user's private list of unique codes ephemerally/privately via DM or ephemeral-style text
+    if not vouchers:
+        await ctx.author.send(
+            f"🛒 **Your Voucher Wallet:**\n"
             f"**Total Balance:** `£{balance:.2f}`\n"
-            f"**Saved Vouchers Available:** `{len(vouchers)}`\n\n"
-            f"*(Select a voucher below to generate your counter barcode)*"
-        ),
-        color=0x3498DB
+            f"*No saved vouchers yet. Try filing complaints using `!greg gen`, `!asda gen`, or `!kfc gen`!*"
+        )
+        await ctx.message.delete()
+        return
+
+    voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f}) — Code: `{v['code']}`" for v in vouchers])
+    
+    await ctx.author.send(
+        f"🛒 **Your Personal Universal Voucher Centre**\n"
+        f"**Account Holder:** {ctx.author.name}\n"
+        f"**Total Balance:** `£{balance:.2f}`\n\n"
+        f"**Your Unique Vouchers:**\n{voucher_list_str}\n\n"
+        f"*(To cash one out and generate your final barcode, type `!redeem [CODE]` in the server channel)*"
     )
     
-    if vouchers:
-        voucher_list_str = "\n".join([f"• **{v['name']}** (£{v['value']:.2f})" for v in vouchers[:10]])
-        embed.add_field(name="🎁 Ready to Redeem", value=voucher_list_str, inline=False)
-        view = VoucherRedeemView(vouchers)
-        await ctx.send(embed=embed, view=view)
-    else:
-        embed.add_field(name="🎁 Ready to Redeem", value="*No saved vouchers. Try `!greg gen`, `!asda gen`, or `!kfc gen` to file complaints!*", inline=False)
-        await ctx.send(embed=embed)
+    await ctx.message.delete()
+    try:
+        await ctx.send(f"📬 {ctx.author.mention}, I have sent your unique voucher wallet list privately via DM!", delete_after=10)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
