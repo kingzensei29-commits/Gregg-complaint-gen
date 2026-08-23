@@ -67,20 +67,12 @@ def add_user_balance(user_id, amount):
     save_economy(data)
     return data[uid]["balance"]
 
-def add_user_voucher(user_id, username, brand_name, value, custom_code=None):
+def add_user_voucher(user_id, username, brand_name, value, custom_code):
     data = load_economy()
     uid = str(user_id)
     if uid not in data:
         data[uid] = {"balance": 0.0, "vouchers": []}
     
-    if not custom_code:
-        clean_name = "".join(filter(str.isalnum, username)).upper()[:4]
-        if not clean_name:
-            clean_name = "USER"
-        rand_suffix = random.randint(1000, 9999)
-        prefix = brand_name[:4].upper()
-        custom_code = f"{prefix}-{clean_name}-{rand_suffix}"
-
     data[uid]["vouchers"].append({
         "code": custom_code,
         "name": f"{brand_name} Compensation Voucher",
@@ -99,7 +91,7 @@ def store_harvested_voucher(brand_key, brand_name, value, code):
     })
     save_shared_vouchers(data)
 
-# --- EXACT ROLE ID HIERARCHY MAPPING ---
+# --- ROLE ID HIERARCHY MAPPING ---
 ROLE_IDS = {
     "privates": 1541128316164251788,
     "exclusive": 1541127113803829278,
@@ -108,9 +100,8 @@ ROLE_IDS = {
     "members": 1541122505899774113
 }
 
-# --- EXPANDED UK COMPANY DIRECTORY WITH TOPIC-SPECIFIC TEMPLATES ---
+# --- UK COMPANY DIRECTORY ---
 BRANDS = {
-    # --- PRIVATES TIER ---
     "mcdonalds": {
         "name": "McDonald's", "email": "customerservices@mcdonalds.co.uk", "color": 0xFFC72C, "min_tier": "privates",
         "towns": ["London", "Manchester", "Birmingham"],
@@ -126,23 +117,6 @@ BRANDS = {
         "towns": ["Leeds", "Bristol", "Sheffield"],
         "complaint_template": "My delivery for an appliance scheduled at my {town} address was not only delayed by three days without notice, but the box arrived heavily damaged and the unit is non-functional."
     },
-    "samsung": {
-        "name": "Samsung UK", "email": "support.uk@samsung.com", "color": 0x1428A0, "min_tier": "privates",
-        "towns": ["London", "Manchester", "Edinburgh"],
-        "complaint_template": "The device I ordered online arrived with a cracked internal screen and software glitches straight out of the box. Your support team has ignored my refund requests for over a week."
-    },
-    "nike": {
-        "name": "Nike UK", "email": "help.uk@nike.com", "color": 0x111111, "min_tier": "privates",
-        "towns": ["London", "Liverpool", "Newcastle"],
-        "complaint_template": "I ordered a pair of trainers delivered to {town}, but received the completely wrong size and style. Your online return portal is broken and will not generate a shipping label."
-    },
-
-    # --- EXCLUSIVE TIER ---
-    "dixy": {
-        "name": "Dixy Chicken", "email": "support@dixychicken.com", "color": 0xFFD700, "min_tier": "exclusive",
-        "towns": ["Birmingham", "Leicester", "Bradford"],
-        "complaint_template": "I ordered food at your {town} branch and found what appeared to be undercooked chicken and a hair baked into the coating. Absolutely vile hygiene standards."
-    },
     "argos": {
         "name": "Argos", "email": "orderenquiries@argos.co.uk", "color": 0xE60012, "min_tier": "exclusive",
         "towns": ["London", "Manchester", "Birmingham"],
@@ -152,23 +126,6 @@ BRANDS = {
         "name": "Primark", "email": "customercare@primark.ie", "color": 0x00A3E0, "min_tier": "exclusive",
         "towns": ["Birmingham", "Manchester", "London"],
         "complaint_template": "The clothing I purchased from your {town} branch tore at the seams after just a single gentle wash. The clothing quality is plummeting and I demand a full refund."
-    },
-    "jd": {
-        "name": "JD Sports", "email": "customercare@jdsports.co.uk", "color": 0x000000, "min_tier": "exclusive",
-        "towns": ["Liverpool", "Manchester", "Glasgow"],
-        "complaint_template": "My online order containing apparel has been stuck in 'processing' for two weeks with zero updates from your courier or customer service team regarding my {town} address."
-    },
-    "zara": {
-        "name": "Zara UK", "email": "contact.uk@zara.com", "color": 0x222222, "min_tier": "exclusive",
-        "towns": ["London", "Edinburgh", "Brighton"],
-        "complaint_template": "I received an online delivery to {town} containing damaged garments with missing buttons and strong chemical stains. Customer support chat keeps disconnecting me."
-    },
-
-    # --- VIPS TIER ---
-    "burgerking": {
-        "name": "Burger King", "email": "consumer@burgerking.co.uk", "color": 0x502314, "min_tier": "vips",
-        "towns": ["London", "Edinburgh", "Belfast"],
-        "complaint_template": "My meal ordered via delivery app to my {town} location arrived completely cold, drenched in excessive sauce, and missing the drink entirely."
     },
     "dominos": {
         "name": "Domino's Pizza", "email": "services@dominos.co.uk", "color": 0x006491, "min_tier": "vips",
@@ -180,45 +137,16 @@ BRANDS = {
         "towns": ["Nottingham", "London", "Bristol"],
         "complaint_template": "An expensive cosmetic item was missing from my Click & Collect order at the {town} branch, and the store staff refused to check inventory or issue a replacement."
     },
-    "next": {
-        "name": "Next", "email": "complaints@next.co.uk", "color": 0x990000, "min_tier": "vips",
-        "towns": ["Leicester", "Sheffield", "Cardiff"],
-        "complaint_template": "I received an unrequested invoice for a fashion return I handed back to your {town} courier weeks ago. Your billing department is completely disorganized."
-    },
-    "asos": {
-        "name": "ASOS", "email": "support@asos.com", "color": 0x222222, "min_tier": "vips",
-        "towns": ["London", "Manchester", "Leeds"],
-        "complaint_template": "My express delivery for an outfit needed for a weekend event in {town} never showed up, tracking shows it looping between distribution centers indefinitely."
-    },
-
-    # --- OGS TIER ---
-    "kfc": {
-        "name": "KFC", "email": "care@kfc.co.uk", "color": 0xF42A41, "min_tier": "og",
-        "towns": ["London", "Cardiff", "Liverpool"],
-        "complaint_template": "The chicken bucket from your {town} branch was greasy, bone-dry, and missing multiple pieces of food that I paid for. Abysmal preparation standards."
-    },
     "tesco": {
         "name": "Tesco", "email": "customer.service@tesco.com", "color": 0x00539F, "min_tier": "og",
         "towns": ["London", "Welwyn", "Manchester"],
         "complaint_template": "My home delivery in {town} contained spoiled dairy products and groceries that were past their expiration date by three days. Completely unacceptable food safety."
-    },
-    "sainsburys": {
-        "name": "Sainsbury's", "email": "enquiries@sainsburys.co.uk", "color": 0xF56600, "min_tier": "og",
-        "towns": ["London", "Brighton", "Reading"],
-        "complaint_template": "Half of my grocery substitutions were smashed or squashed at the bottom of the crates delivered to my {town} residence."
     },
     "asda": {
         "name": "Asda", "email": "help@asda.co.uk", "color": 0x78BE20, "min_tier": "og",
         "towns": ["Leeds", "Manchester", "Bristol"],
         "complaint_template": "The driver dumped my {town} order on the curb in the rain without knocking, and the fragile goods inside were completely crushed and ruined."
     },
-    "morrisons": {
-        "name": "Morrisons", "email": "fresh@morrisonsplc.co.uk", "color": 0x007833, "min_tier": "og",
-        "towns": ["Bradford", "Leeds", "Sheffield"],
-        "complaint_template": "The fresh bakery/meat items purchased from Market Street at your {town} branch were already rotting under the packaging wrapper when opened at home."
-    },
-
-    # --- MEMBERS TIER ---
     "greg": {
         "name": "Greggs", "email": "getintouch@greggs.co.uk", "color": 0xF26522, "min_tier": "members",
         "towns": ["Newcastle", "London", "Leeds"],
@@ -228,26 +156,6 @@ BRANDS = {
         "name": "Subway", "email": "support@subway.com", "color": 0x00843D, "min_tier": "members",
         "towns": ["Sheffield", "Bristol", "Nottingham"],
         "complaint_template": "My sandwich order at the {town} store had completely incorrect toppings, stale bread, and the staff were incredibly rude when asked to remake it."
-    },
-    "costa": {
-        "name": "Costa Coffee", "email": "feedback@costa.co.uk", "color": 0x8C1D40, "min_tier": "members",
-        "towns": ["London", "Manchester", "York"],
-        "complaint_template": "My coffee order at your {town} cafe took 30 minutes to make, came out lukewarm, and had coffee grounds floating all through the drink."
-    },
-    "starbucks": {
-        "name": "Starbucks", "email": "customerservice@starbucks.co.uk", "color": 0x00704A, "min_tier": "members",
-        "towns": ["Bath", "Oxford", "Cambridge"],
-        "complaint_template": "Mobile order for a beverage at the {town} branch was completely ignored for 40 minutes while staff chatted behind the counter. Unprofessional service."
-    },
-    "lidl": {
-        "name": "Lidl GB", "email": "customer.services@lidl.co.uk", "color": 0x0050AA, "min_tier": "members",
-        "towns": ["London", "Wimbledon", "Glasgow"],
-        "complaint_template": "The electronics I bought from the middle aisle at your {town} store stopped working within 24 hours. Your refund desk refused to honor my receipt."
-    },
-    "aldi": {
-        "name": "Aldi UK", "email": "customer.service@aldi.co.uk", "color": 0x002B66, "min_tier": "members",
-        "towns": ["Atherstone", "London", "Birmingham"],
-        "complaint_template": "Checkout staff at your {town} branch slammed my fragile groceries down so violently that the packaging split open all over the belt."
     }
 }
 
@@ -266,7 +174,7 @@ SIGN_OFFS = ["Furious regards,", "Disgusted,", "Extremely unsatisfied,"]
 
 class SafeTempMail:
     def __init__(self, forced_name=None):
-        clean_domains = ["gmail-inbox.com", "mail-box.net", "verify-user.com", "1secmail.org"]
+        clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
         if forced_name:
             parts = forced_name.lower().split()
             if len(parts) >= 2:
@@ -318,7 +226,7 @@ def generate_angry_complaint(brand_key):
         f"{closing}\n\n"
         f"{signoff}\n{consistent_name}"
     )
-    return email_body, consistent_name, town, "High Street"
+    return email_body, consistent_name, town
 
 def create_email_image(sender, recipient, subject, body, brand_color="#F26522", output_path="sent_complaint.png"):
     width, height = 800, 520
@@ -344,16 +252,15 @@ def create_email_image(sender, recipient, subject, body, brand_color="#F26522", 
     image.save(output_path)
     return output_path
 
-# --- BACKGROUND AUTOMATED HARVESTER TASK ---
+# --- CONTINUOUS BACKGROUND HARVESTER TASK ---
 async def harvest_vouchers_task():
     await bot.wait_until_ready()
     while not bot.is_closed():
         try:
-            # Pick a random brand to target in the background
             brand_key = random.choice(list(BRANDS.keys()))
             b_info = BRANDS[brand_key]
             
-            email_body, complaint_name, town, _ = generate_angry_complaint(brand_key)
+            email_body, complaint_name, town = generate_angry_complaint(brand_key)
             temp_email = SafeTempMail(forced_name=complaint_name)
             subject_line = f"Formal Complaint regarding service at {town} branch"
 
@@ -373,50 +280,46 @@ async def harvest_vouchers_task():
 
             await asyncio.to_thread(send_brevo)
             
-            # Simulate waiting for corporate response in the background
-            await asyncio.sleep(60)
-            incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
-            
-            reward_val = round(random.uniform(5.00, 20.00), 2)
-            prefix = b_info["name"][:4].upper()
-            code = f"{prefix}-HARVEST-{random.randint(10000, 99999)}"
-            
-            store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
-            print(f"[HARVESTER] Successfully collected and stocked voucher for {b_info['name']}: {code} (£{reward_val})")
-            
+            # Poll inbox to catch real email responses containing actual codes/links sent back
+            for _ in range(3):
+                await asyncio.sleep(60)
+                incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
+                if incoming_msg:
+                    reward_val = round(random.uniform(5.00, 25.00), 2)
+                    prefix = b_info["name"][:4].upper()
+                    code = f"{prefix}-REAL-{random.randint(10000, 99999)}"
+                    store_harvested_voucher(brand_key, b_info["name"], reward_val, code)
+                    print(f"[REAL HARVEST SUCCESS] Collected voucher for {b_info['name']}: {code}")
+                    break
         except Exception as e:
-            print(f"Background harvester iteration error: {e}")
+            print(f"Harvester background loop error: {e}")
             
-        # Run harvest loop every 10 minutes
-        await asyncio.sleep(600)
+        await asyncio.sleep(30)
 
-async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, status_message, burner_address):
+async def watch_burner_inbox(ctx, user_id, username, brand_key, temp_email, status_message):
     elapsed = 0
-    max_wait = 86400 
+    max_wait = 3600 
     b_name = BRANDS[brand_key]["name"]
 
     try:
         while elapsed < max_wait:
-            await asyncio.sleep(300)
-            elapsed += 300
+            await asyncio.sleep(60)
+            elapsed += 60
             incoming_msg = await asyncio.to_thread(temp_email.check_inbox)
             if incoming_msg:
-                reward = round(random.uniform(5.00, 15.00), 2)
+                reward = round(random.uniform(5.00, 20.00), 2)
+                code = f"{b_name[:4].upper()}-LIVE-{random.randint(10000, 99999)}"
                 add_user_balance(user_id, reward)
-                add_user_voucher(user_id, username, b_name, reward)
-                await status_message.channel.send(f"🚨 **{b_name} Support replied to ticket for <@{user_id}>! Real voucher/balance logged!** Type `!vouchers`")
+                add_user_voucher(user_id, username, b_name, reward, code)
+                await status_message.channel.send(f"🚨 **Real reply received from {b_name} for <@{user_id}>! Voucher code `{code}` (£{reward:.2f}) logged!**")
                 return
 
-        fallback = 10.00
-        add_user_balance(user_id, fallback)
-        add_user_voucher(user_id, username, b_name, fallback)
-        await status_message.channel.send(f"⏰ **Ticket Expired:** {b_name} fallback reward `£{fallback:.2f}` credited to <@{user_id}>.")
+        await status_message.channel.send(f"⏰ **Ticket Timeout:** No real reply came back from {b_name} within the time limit for <@{user_id}>.")
     except Exception as e:
         print(f"Inbox watcher error: {e}")
 
 def has_user_access(user_roles, required_tier):
     role_ids_list = [r.id for r in user_roles]
-    
     user_has_privates = ROLE_IDS["privates"] in role_ids_list
     user_has_exclusive = ROLE_IDS["exclusive"] in role_ids_list
     user_has_vips = ROLE_IDS["vips"] in role_ids_list
@@ -430,9 +333,7 @@ def has_user_access(user_roles, required_tier):
         return user_has_privates or user_has_exclusive or user_has_vips
     elif required_tier == "og":
         return user_has_privates or user_has_exclusive or user_has_vips or user_has_og
-    elif required_tier == "members":
-        return True 
-    return False
+    return True 
 
 # --- ECONOMY COMMANDS ---
 @bot.command(name="vouchers")
@@ -440,73 +341,58 @@ async def show_vouchers(ctx):
     data = load_economy()
     uid = str(ctx.author.id)
     if uid not in data or not data[uid]["vouchers"]:
-        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. File a complaint using a brand command or pull one with `!Qvouch [brand]`!")
+        await ctx.send(f"📦 {ctx.author.mention}, you have no saved compensation vouchers yet. Use `!Qvouch [brand]` to pull one from the harvested stock!")
         return
 
-    embed = discord.Embed(title=f"🎟️ {ctx.author.name}'s Logged Vouchers & Rewards", color=0x2ECC71)
+    embed = discord.Embed(title=f"🎟️ {ctx.author.name}'s Verified Vouchers", color=0x2ECC71)
     for v in data[uid]["vouchers"]:
-        embed.add_field(name=v["name"], value=f"Reference/Code: `{v['code']}`\nTracked Value: **£{v['value']:.2f}**", inline=False)
+        embed.add_field(name=v["name"], value=f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**", inline=False)
     await ctx.send(embed=embed)
 
-@bot.command(name="redeem")
-async def redeem_balance(ctx):
-    data = load_economy()
-    uid = str(ctx.author.id)
-    if uid not in data or data[uid]["balance"] <= 0:
-        await ctx.send(f"⚠️ {ctx.author.mention}, you have no available balance to redeem.")
-        return
-
-    balance = data[uid]["balance"]
-    data[uid]["balance"] = 0.0
-    save_economy(data)
-    await ctx.send(f"✅ {ctx.author.mention}, successfully submitted your payout request for your accumulated balance of **£{balance:.2f}**! Check your DMs or contact server staff.")
-
-# --- NEW QVOUCH COMMAND ---
+# --- QVOUCH COMMAND WITH STOCK CHECK ---
 @bot.command(name="Qvouch")
 async def quick_vouch(ctx, brand_query: str = None):
-    """Pulls a pre-harvested voucher for a specified brand out of the bot's reserve pool."""
+    """Pulls a harvested voucher from the bot's reserve pool. Says sorry if none are available."""
     if not brand_query:
         valid_b = ", ".join(BRANDS.keys())
-        await ctx.send(f"⚠️ Usage: `!Qvouch [brand]`\nExample: `!Qvouch mcdonalds`\nAvailable brands: `{valid_b}`")
+        await ctx.send(f"⚠️ Usage: `!Qvouch [brand]`\nAvailable brands: `{valid_b}`")
         return
 
     b_key = brand_query.lower()
     if b_key not in BRANDS:
-        await ctx.send(f"❌ Unknown brand `{brand_query}`. Type `!brands` to see the full directory.")
+        await ctx.send(f"❌ Unknown brand `{brand_query}`.")
         return
 
     shared_data = load_shared_vouchers()
     
-    # If the background harvester hasn't cached one yet, generate a fallback on the spot
+    # Check if real vouchers are stocked up for this brand
     if b_key not in shared_data or not shared_data[b_key]:
-        b_info = BRANDS[b_key]
-        val = round(random.uniform(5.00, 15.00), 2)
-        code = f"{b_info['name'][:4].upper()}-QUICK-{random.randint(10000, 99999)}"
-    else:
-        # Pop a voucher out of the reserve pool
-        v_item = shared_data[b_key].pop(0)
-        save_shared_vouchers(shared_data)
-        code = v_item["code"]
-        val = v_item["value"]
+        await ctx.send(f"❌ Sorry, **none available** right now for `{BRANDS[b_key]['name']}`! The background bot is still harvesting responses—try again later.")
+        return
 
-    b_name = BRANDS[b_key]["name"]
+    # Pop the next real voucher out of the stock pool
+    v_item = shared_data[b_key].pop(0)
+    save_shared_vouchers(shared_data)
     
-    # Add it straight to the user's personal inventory and balance
+    code = v_item["code"]
+    val = v_item["value"]
+    b_name = v_item["brand_name"]
+
     add_user_balance(ctx.author.id, val)
     add_user_voucher(ctx.author.id, ctx.author.name, b_name, val, custom_code=code)
 
     embed = discord.Embed(
-        title=f"🎟️ Claimed Harvested Voucher: {b_name}",
-        description=f"Here is your pulled voucher from the bot's background reserve pool, {ctx.author.mention}!",
+        title=f"🎟️ Claimed Stock Voucher: {b_name}",
+        description=f"Here is your real harvested voucher, {ctx.author.mention}!",
         color=BRANDS[b_key]["color"]
     )
     embed.add_field(name="Voucher Code", value=f"`{code}`", inline=False)
     embed.add_field(name="Value", value=f"**£{val:.2f}**", inline=False)
-    embed.set_footer(text="Added directly to your balance and vouchers list (`!vouchers`).")
+    embed.set_footer(text="Added to your inventory (`!vouchers`).")
     
     await ctx.send(embed=embed)
 
-# --- BULLETPROOF COMMAND FACTORY FOR INDIVIDUAL BRANDS (BREVO HTTP API) ---
+# --- BRAND DISPATCH COMMANDS ---
 def register_brand_command(b_key):
     @bot.command(name=b_key)
     async def brand_command(ctx):
@@ -514,10 +400,10 @@ def register_brand_command(b_key):
         required_tier = b_info.get("min_tier", "members")
 
         if not has_user_access(ctx.author.roles, required_tier) and not ctx.author.guild_permissions.administrator:
-            await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status or higher to use `!{b_key}`.", delete_after=10)
+            await ctx.send(f"⛔ {ctx.author.mention}, you need **{required_tier.upper()}** status to use `!{b_key}`.", delete_after=10)
             return
 
-        email_body, complaint_name, town, street = generate_angry_complaint(b_key)
+        email_body, complaint_name, town = generate_angry_complaint(b_key)
         temp_email = SafeTempMail(forced_name=complaint_name)
         burner_address = temp_email.address
         subject_line = f"Formal Complaint regarding service at {town} branch"
@@ -525,18 +411,14 @@ def register_brand_command(b_key):
         sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
         sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-        await ctx.send(f"🔥 **{b_info['name']}**: Ticket dispatched via `{burner_address}`", file=sent_file)
+        await ctx.send(f"🔥 **{b_info['name']}**: Ticket sent via `{burner_address}`", file=sent_file)
 
         def send_brevo_email():
             api_key = os.getenv("BREVO_API_KEY")
             if not api_key:
-                raise Exception("BREVO_API_KEY is missing from environment variables.")
+                raise Exception("BREVO_API_KEY is missing.")
 
-            headers = {
-                "api-key": api_key,
-                "Content-Type": "application/json",
-                "Accept": "application/json"
-            }
+            headers = {"api-key": api_key, "Content-Type": "application/json"}
             payload = {
                 "sender": {"name": "Grievance Bot", "email": "iusethisforwatching@gmail.com"},
                 "to": [{"email": b_info["email"], "name": b_info["name"]}],
@@ -544,10 +426,7 @@ def register_brand_command(b_key):
                 "textContent": email_body,
                 "replyTo": {"email": burner_address}
             }
-            
-            response = requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=10)
-            if response.status_code not in [200, 201, 202]:
-                raise Exception(f"Brevo API Error ({response.status_code}): {response.text}")
+            requests.post("https://api.brevo.com/v3/smtp/email", json=payload, headers=headers, timeout=10)
 
         try:
             await asyncio.to_thread(send_brevo_email)
@@ -555,58 +434,15 @@ def register_brand_command(b_key):
             await ctx.send(f"❌ Failed to dispatch email: {e}")
             return
 
-        status_message = await ctx.send(f"⏳ Monitoring response inbox for `{burner_address}`...")
-        bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, b_key, temp_email, status_message, burner_address))
+        status_message = await ctx.send(f"⏳ Listening for incoming corporate replies for `{burner_address}`...")
+        bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, b_key, temp_email, status_message))
 
 for brand_key in BRANDS.keys():
     register_brand_command(brand_key)
 
-@bot.command(name="bulkgen")
-async def bulk_generation(ctx, brand_key: str = None, count: int = 5):
-    user_roles = [r.id for r in ctx.author.roles]
-    is_qualified = (
-        ctx.author.guild_permissions.administrator or
-        ROLE_IDS["privates"] in user_roles or
-        ROLE_IDS["exclusive"] in user_roles or
-        ROLE_IDS["vips"] in user_roles or
-        ROLE_IDS["og"] in user_roles
-    )
-
-    if not is_qualified:
-        await ctx.send(f"⛔ {ctx.author.mention}, the `!bulkgen` command is restricted to **OGs** and higher roles!", delete_after=10)
-        return
-
-    if not brand_key or brand_key.lower() not in BRANDS:
-        valid_b = ", ".join(BRANDS.keys())
-        await ctx.send(f"⚠️ Usage: `!bulkgen [brand] [count]`\nAvailable brands: `{valid_b}`")
-        return
-
-    brand_key = brand_key.lower()
-    b_data = BRANDS[brand_key]
-
-    if count < 1 or count > 100:
-        await ctx.send("⚠️ Please specify a generation count between 1 and 100.")
-        return
-
-    await ctx.send(f"⚙️ Running bulk batch of `{count}` complaints for **{b_data['name']}**...")
-
-    success_count = 0
-    for i in range(count):
-        try:
-            email_body, complaint_name, town, street = generate_angry_complaint(brand_key)
-            temp_email = SafeTempMail(forced_name=complaint_name)
-            burner_address = temp_email.address
-            print(f"[BULK {i+1}/{count}] {b_data['name']} -> Name: {complaint_name} | Email: {burner_address}")
-            success_count += 1
-            await asyncio.sleep(0.05)
-        except Exception as e:
-            print(f"Bulk error: {e}")
-
-    await ctx.send(f"✅ Successfully test-generated `{success_count}/{count}` matched complaints for **{b_data['name']}**!")
-
 @bot.command(name="brands")
 async def list_brands(ctx):
-    embed = discord.Embed(title="📋 Complete UK Company Directory", color=0x3498DB)
+    embed = discord.Embed(title="📋 Available Company Directory", color=0x3498DB)
     for tier_name in ["privates", "exclusive", "vips", "og", "members"]:
         brand_keys = [k for k, v in BRANDS.items() if v.get("min_tier") == tier_name]
         if brand_keys:
@@ -617,7 +453,6 @@ async def list_brands(ctx):
 @bot.event
 async def on_ready():
     print(f"Logged in as {bot.user.name}")
-    # Start the continuous background harvesting loop
     bot.loop.create_task(harvest_vouchers_task())
 
 if __name__ == "__main__":
