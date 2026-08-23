@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Interactive Chat & Verification Pipeline is online!"
+    return "🟢 Mistral Strict-On-Topic Chat & Verification Pipeline is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -168,25 +168,35 @@ def generate_mistral_complaint(brand_key):
     return f"Terrible service at {town}. I demand a voucher.", consistent_name, town, "Complaint"
 
 def ask_mistral_chatbot(user_query):
-    """Allows Mistral to talk dynamically with users in the public server channels."""
+    """Enforces strict platform guidelines, 99% accuracy on commands/features, and locks down the persona on-topic."""
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
-        return "Mistral API key is missing, so I cannot chat right now!"
+        return "Mistral API key is missing."
 
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json"
     }
     
-    prompt = (
-        f"You are a helpful, witty, and savvy Discord assistant bot managing a consumer grievance and verification platform. "
-        f"Keep your responses concise, engaging, and relevant. User query: {user_query}"
+    supported_brands_list = ", ".join(BRANDS.keys()) if BRANDS else "configured brands"
+    
+    system_prompt = (
+        f"You are the official support and assistant bot for a Discord automated consumer grievance and verification platform. "
+        f"STRICT DIRECTIVES:\n"
+        f"1. STAY ON TOPIC: You only discuss platform mechanics, complaint generators, brand verification pipelines, wallet ledgers, and concurrent limits (50 max slots).\n"
+        f"2. ACCURACY: Provide 99% factual answers based solely on these system commands: `![brand] gen` to trigger a complaint pipeline, and `!voucher` (or `!wallet`) to check saved vouchers.\n"
+        f"3. Available brands config keys: [{supported_brands_list}].\n"
+        f"4. If users ask about anything off-topic, politely redirect them back to using the grievance platform.\n"
+        f"5. Keep answers concise, factual, and helpful."
     )
 
     payload = {
         "model": "mistral-small-latest",
-        "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.7,
+        "messages": [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_query}
+        ],
+        "temperature": 0.2,
         "max_tokens": 200
     }
 
@@ -197,7 +207,7 @@ def ask_mistral_chatbot(user_query):
     except Exception:
         pass
     
-    return "I'm having trouble connecting to my neural network right now!"
+    return "I am currently unable to process your request."
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
@@ -368,14 +378,12 @@ async def on_message(message):
             bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj))
             return
 
-    # 2. Allow users to talk/chat directly with Mistral in the server (mentioning the bot or replying to it)
-    if bot.user.mentioned_in(message) or isinstance(message.channel, discord.DMChannel):
-        clean_prompt = message.content.replace(f"<@{bot.user.id}>", "").strip()
-        if clean_prompt:
-            async with message.channel.typing():
-                ai_reply = await asyncio.to_thread(ask_mistral_chatbot, clean_prompt)
-                await message.reply(ai_reply)
-            return
+    # 2. Allow open public server chat: Responds automatically to standard chat messages without requiring manual replies or mentions
+    if not content.startswith("!"):
+        async with message.channel.typing():
+            ai_reply = await asyncio.to_thread(ask_mistral_chatbot, content)
+            await message.reply(ai_reply)
+        return
 
     await bot.process_commands(message)
 
@@ -408,7 +416,7 @@ async def show_voucher_wallet(ctx):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Mistral Chat & Verification Pipeline online.")
+    print(f"Logged in as {bot.user.name} | Strict-On-Topic Chat Bot online.")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
