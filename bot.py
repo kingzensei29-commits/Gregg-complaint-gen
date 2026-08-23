@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🥧 Greggs Grievance Bot is online and operational!"
+    return "Gregg Bot is online and operational!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -456,7 +456,7 @@ async def voucher(ctx):
     vouchers = user_data["vouchers"]
     
     embed = discord.Embed(
-        title="🥧 Greggs Grievance & Voucher Wallet",
+        title="🎟️ Greggs Voucher Wallet",
         description=f"**Account Holder:** {ctx.author.mention}\n**Total Compensation Balance:** `£{balance:.2f}`\n**Available Vouchers:** `{len(vouchers)}`",
         color=0xF26522
     )
