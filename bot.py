@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "Gregg Bot is online and operational!"
+    return "🥧 Greggs Grievance Bot is online and operational!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -40,7 +40,7 @@ intents = discord.Intents.default()
 intents.message_content = True  
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- USER ECONOMY / VOUCHER STORAGE ---
+# --- PERSISTENT USER ECONOMY / VOUCHER STORAGE ---
 ECONOMY_FILE = "user_economy.json"
 
 def load_economy():
@@ -53,8 +53,11 @@ def load_economy():
     return {}
 
 def save_economy(data):
-    with open(ECONOMY_FILE, "w") as f:
-        json.dump(data, f, indent=4)
+    try:
+        with open(ECONOMY_FILE, "w") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Failed to save economy state: {e}")
 
 def add_user_balance(user_id, amount):
     data = load_economy()
@@ -303,7 +306,7 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
             hours_left = round((max_wait_seconds - elapsed) / 3600, 1)
             await status_message.edit(content=
                 f"✉️ **Burner inbox:** `{burner_address}`\n"
-                f"⏳ **Status:** Monitoring branch verification system...\n"
+                f"⏳ **Status:** Monitoring branch verification system... *(Greggs normally takes 1-3 days, stay prepped)*\n"
                 f"📊 **Progress Window:** `(~{hours_left}h remaining)`\n"
                 f"{emoji_bar_str}"
             )
@@ -316,7 +319,6 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
             sender = incoming_msg.from_addr
             body = incoming_msg.body
             
-            # Auto-reply when Greggs requests app details or phone number
             if not auto_replied and ("voucher" in body.lower() or "app" in body.lower() or "number" in body.lower()):
                 success = send_auto_reply_to_company(sender, subject, burner_address, burner_address)
                 if success:
@@ -327,7 +329,6 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
                     )
                 continue 
 
-            # Final Payout / Voucher Drop Detection
             reward_amount = round(random.uniform(5.00, 15.00), 2)
             add_user_balance(user_id, reward_amount)
             add_user_voucher(user_id, "Greggs Verified App Compensation", reward_amount)
@@ -342,12 +343,11 @@ async def watch_burner_inbox_with_progress(ctx, user_id, temp_email, status_mess
             )
             return
 
-    # Fallback simulation if timeout is reached
     fallback_reward = 10.00
     add_user_balance(user_id, fallback_reward)
     add_user_voucher(user_id, "Greggs Priority Resolution Voucher", fallback_reward)
     await status_message.channel.send(
-        f"⏰ **Branch Log Verified:** Greggs automated ticket closed for `{burner_address}`.\n"
+        f"⏰ **Branch Log Verified:** Greggs automated ticket processed for `{burner_address}`.\n"
         f"🎁 **Bonus Credited:** `£{fallback_reward:.2f}` has been deposited into your money balance! Type `!voucher` to check your wallet."
     )
 
@@ -436,14 +436,14 @@ async def greg(ctx, action: str = None):
         initial_emoji_bar = build_emoji_progress_bar(0)
         status_message = await ctx.send(
             f"✉️ **Burner inbox:** `{burner_address}`\n"
-            f"⏳ **Status:** Complaint logged into branch verification system...\n"
+            f"⏳ **Status:** Ticket filed. *(Note: Greggs normally takes 1-3 days to respond, stay prepped)*\n"
             f"📊 **Progress Window:** `(~2.0h remaining)`\n"
             f"{initial_emoji_bar}"
         )
 
         bot.loop.create_task(watch_burner_inbox_with_progress(ctx, ctx.author.id, temp_email, status_message, burner_address, max_wait_seconds=7200))
     else:
-        await ctx.send("⚠️ Usage: Type `!greg gen` to send an angry verified complaint, or `!voucher` to check your balance.")
+        await ctx.send("⚠️ Usage: Type `!greg gen` to send an angry verified complaint, or `!voucher` to check your wallet.")
 
 
 @bot.command(name="voucher")
@@ -456,8 +456,13 @@ async def voucher(ctx):
     vouchers = user_data["vouchers"]
     
     embed = discord.Embed(
-        title="🎟️ Greggs Voucher Wallet",
-        description=f"**Account Holder:** {ctx.author.mention}\n**Total Compensation Balance:** `£{balance:.2f}`\n**Available Vouchers:** `{len(vouchers)}`",
+        title="🥧 Greggs Grievance & Voucher Wallet",
+        description=(
+            f"**Account Holder:** {ctx.author.mention}\n"
+            f"**Total Compensation Balance:** `£{balance:.2f}`\n"
+            f"**Available Vouchers:** `{len(vouchers)}`\n\n"
+            f"⏱️ *Reminder: Greggs customer support normally takes 1–3 days to process feedback tickets and issue compensation.*"
+        ),
         color=0xF26522
     )
     
@@ -478,7 +483,6 @@ if __name__ == "__main__":
     elif not os.getenv("SENDER_EMAIL") or not os.getenv("EMAIL_PASSWORD"):
         print("❌ Error: SENDER_EMAIL or EMAIL_PASSWORD environment variables are missing!")
     else:
-        # Start the Flask web server daemon for Render port binding
         server_thread = threading.Thread(target=run_web_server)
         server_thread.daemon = True
         server_thread.start()
