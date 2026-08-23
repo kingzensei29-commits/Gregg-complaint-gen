@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Detailed Grievance Code-Brain is online!"
+    return "🟢 Mistral Tagged ID Code-Brain is online!"
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
@@ -86,7 +86,7 @@ def load_persistent_pipelines():
 def save_persistent_pipelines(data):
     save_json_file(PERSISTENT_PIPELINES_FILE, data)
 
-def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain):
+def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, db_id):
     pipelines = load_persistent_pipelines()
     key = f"{burner_username}@{burner_domain}"
     pipelines[key] = {
@@ -95,6 +95,7 @@ def register_persistent_pipeline(user_id, username, brand_name, burner_username,
         "brand_name": brand_name,
         "burner_username": burner_username,
         "burner_domain": burner_domain,
+        "db_id": db_id,
         "elapsed": 0
     }
     save_persistent_pipelines(pipelines)
@@ -102,9 +103,11 @@ def register_persistent_pipeline(user_id, username, brand_name, burner_username,
 def remove_persistent_pipeline(burner_address):
     pipelines = load_persistent_pipelines()
     key = burner_address.lower()
-    if key in pipelines:
-        del pipelines[key]
-        save_persistent_pipelines(pipelines)
+    for p_key, p_data in list(pipelines.items()):
+        if p_key == key or f"{p_data['burner_username']}@{p_data['burner_domain']}".lower() == key:
+            del pipelines[p_key]
+            save_persistent_pipelines(pipelines)
+            break
 
 def log_user_usage(user_id, username, brand_name, burner_address, subject, body):
     stats = load_usage_stats()
@@ -121,7 +124,11 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body)
     save_usage_stats(stats)
 
     registry = load_burner_registry()
-    registry[burner_address.lower()] = {
+    next_id = len(registry) + 1
+    
+    registry[str(next_id)] = {
+        "db_id": next_id,
+        "address": burner_address.lower(),
         "user_id": uid,
         "username": username,
         "brand": brand_name,
@@ -130,13 +137,16 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body)
         "status": "Active Pipeline Waiting for Response"
     }
     save_burner_registry(registry)
+    return next_id
 
-def update_burner_status(burner_address, new_status):
+def update_burner_status_by_address(burner_address, new_status):
     registry = load_burner_registry()
     b_key = burner_address.lower()
-    if b_key in registry:
-        registry[b_key]["status"] = new_status
-        save_burner_registry(registry)
+    for k, info in registry.items():
+        if info["address"] == b_key:
+            info["status"] = new_status
+            save_burner_registry(registry)
+            break
 
 def add_user_voucher(user_id, username, brand_name, value, custom_code):
     data = load_economy()
@@ -153,9 +163,13 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code):
     save_economy(data)
 
 class DynamicBurnerMailbox:
-    def __init__(self, username, domain):
-        self.username = username
-        self.domain = domain
+    def __init__(self, full_name):
+        clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
+        clean_name = re.sub(r'[^a-zA-Z]', '', full_name).lower()
+        if len(clean_name) < 3:
+            clean_name = "customer"
+        self.username = f"{clean_name}{random.randint(10, 999)}"
+        self.domain = random.choice(clean_domains)
         self.address = f"{self.username}@{self.domain}"
 
     def check_inbox_and_attachments(self):
@@ -187,7 +201,7 @@ def generate_mistral_complaint(brand_key):
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I visited your {town} branch on Tuesday and purchased several items, but discovered upon arriving home that they were completely damaged and unusable due to careless handling."
+        fallback_issue = f"I visited your {town} branch and purchased several items, but discovered upon arriving home that they were completely damaged and unusable due to careless handling."
         email_body = f"Dear Support Team,\n\nMy name is {consistent_name}. I am writing to formally log a serious complaint regarding my recent transaction at your {town} store.\n\n{fallback_issue}\n\nThis is completely unacceptable for a brand of your reputation. I expect a prompt goodwill voucher or full compensation.\n\nRegards,\n{consistent_name}"
         return email_body, consistent_name, town, f"Unacceptable product condition at {town} branch"
 
@@ -199,10 +213,10 @@ def generate_mistral_complaint(brand_key):
     prompt = (
         f"You are writing a deeply detailed, highly frustrated formal customer complaint email to consumer relations for the brand '{b_data['name']}'. "
         f"The incident took place at the physical store or via delivery in {town}. "
-        f"STRICT DIRECTIVES FOR REASONS & REALISM:\n"
-        f"1. Invent specific, highly plausible product failures (e.g., missing essential components, items arriving completely crushed/spoiled, incorrect sizing/variants delivered, or awful customer service behavior from staff members at that location).\n"
+        f"STRICT DIRECTIVES:\n"
+        f"1. Invent specific, highly plausible product failures (e.g., missing essential components, items arriving completely crushed/spoiled, incorrect sizing/variants delivered, or awful customer service behavior).\n"
         f"2. Write in a genuinely irate, highly articulate human tone detailing the exact inconvenience caused.\n"
-        f"3. Demand appropriate compensation or a high-value goodwill gesture/gift voucher.\n"
+        f"3. Demand appropriate compensation or a high-value goodwill gift voucher.\n"
         f"4. ABSOLUTE CONSTRAINT: NEVER mention paper receipts, physical transaction numbers, or having physical proof.\n"
         f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
         f"6. On the very first line of your response, write a custom email subject line starting with 'SUBJECT: '."
@@ -246,7 +260,6 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
     economy_data = load_economy()
     usage_stats = load_usage_stats()
     burner_registry = load_burner_registry()
-    persistent_pipelines = load_persistent_pipelines()
     
     user_uid = str(author_id)
     user_active_count = active_data.get(user_uid, 0)
@@ -260,8 +273,7 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
         f"- User Total Lifetime Pipelines Launched: {user_total_gens}\n"
         f"- User Currently Active Pipelines: {user_active_count}\n"
         f"- User Secured Vouchers: {user_vouchers_count}\n"
-        f"- Total Persistent Active Pipelines in Disk State: {len(persistent_pipelines)}\n"
-        f"- Total Registered Burners in Database: {len(burner_registry)}"
+        f"- Total Tracked Pipelines in Database: {len(burner_registry)}"
     )
 
     payload = {
@@ -317,10 +329,10 @@ def handle_human_verification_check(email_body):
             return True
     return False
 
-async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj, elapsed_time=0):
+async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj, db_id, elapsed_time=0):
     max_wait = 1200
     elapsed = elapsed_time
-    register_persistent_pipeline(user_id, username, brand_name, burner_obj.username, burner_obj.domain)
+    register_persistent_pipeline(user_id, username, brand_name, burner_obj.username, burner_obj.domain, db_id)
     
     try:
         while elapsed < max_wait:
@@ -330,7 +342,7 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
             incoming = await asyncio.to_thread(burner_obj.check_inbox_and_attachments)
             if incoming:
                 if handle_human_verification_check(incoming.body):
-                    update_burner_status(burner_obj.address, "Triggered Human/SMS Verification Wall - Bypassing...")
+                    update_burner_status_by_address(burner_obj.address, "Triggered Human/SMS Verification Wall - Bypassing...")
                     await asyncio.sleep(5) 
                     continue
 
@@ -341,7 +353,7 @@ async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burne
                     val = round(random.uniform(5.00, 25.00), 2)
                     
                     add_user_voucher(user_id, username, brand_name, val, extracted_code)
-                    update_burner_status(burner_obj.address, f"Success! Voucher Secured (£{val:.2f})")
+                    update_burner_status_by_address(burner_obj.address, f"Success! Voucher Secured (£{val:.2f})")
                     
                     try:
                         user = await bot.fetch_user(int(user_id))
@@ -384,12 +396,15 @@ async def on_ready():
     if pipelines:
         print(f"🔄 Restoring {len(pipelines)} ongoing pipeline verification loops from persistent storage...")
         for burner_key, data in list(pipelines.items()):
-            burner_obj = DynamicBurnerMailbox(data["burner_username"], data["burner_domain"])
+            burner_obj = DynamicBurnerMailbox(data["burner_username"])
+            burner_obj.domain = data["burner_domain"]
+            burner_obj.address = f"{burner_obj.username}@{burner_obj.domain}"
             bot.loop.create_task(run_identity_and_voucher_pipeline(
                 data["user_id"],
                 data["username"],
                 data["brand_name"],
                 burner_obj,
+                data.get("db_id", 1),
                 elapsed_time=data.get("elapsed", 0)
             ))
 
@@ -431,19 +446,17 @@ async def on_message(message):
             b_info = BRANDS[brand_query]
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
             
-            clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
-            b_username = f"user.claim.{random.randint(10000, 99999)}"
-            b_domain = random.choice(clean_domains)
-            burner_obj = DynamicBurnerMailbox(b_username, b_domain)
+            # Create burner email matching the generated name
+            burner_obj = DynamicBurnerMailbox(complaint_name)
             burner_address = burner_obj.address
 
-            log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body)
+            db_id = log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body)
 
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
             email_client_layout = (
-                f"🛡️ **{b_info['name']}**: Pipeline active ({active_users[uid_str]}/50 slots)\n"
+                f"🛡️ **{b_info['name']}** (ID: `#{db_id}` | Active: {active_users[uid_str]}/50 slots)\n"
                 f"> **Burner Assigned:** `{burner_address}`\n"
                 f"> **To:** `{b_info['email']}`\n"
                 f"> **Subject:** `{subject_line}`\n"
@@ -476,30 +489,40 @@ async def on_message(message):
                     if active_users[uid_str] <= 0:
                         del active_users[uid_str]
                     save_active_users(active_users)
-                update_burner_status(burner_address, f"Dispatch Failed: {e}")
+                update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
                 await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
 
-            bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj))
+            bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj, db_id))
             return
 
-    # 2. Burner Status Command Check
+    # 2. Burner Status Command Check by ID or Address
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
-            query_burner = parts[1].strip().lower()
+            query_key = parts[1].strip().replace("#", "").lower()
             registry = load_burner_registry()
-            if query_burner in registry:
-                info = registry[query_burner]
-                embed = discord.Embed(title=f"📊 Burner Status: {query_burner}", color=0xF39C12)
-                embed.add_field(name="Brand", value=info["brand"], inline=True)
-                embed.add_field(name="Owner", value=info["username"], inline=True)
-                embed.add_field(name="Pipeline State", value=info["status"], inline=False)
-                embed.add_field(name="Subject", value=info["subject"], inline=False)
+            
+            matched_info = None
+            if query_key in registry:
+                matched_info = registry[query_key]
+            else:
+                for k, info in registry.items():
+                    if info["address"] == query_key:
+                        matched_info = info
+                        break
+
+            if matched_info:
+                embed = discord.Embed(title=f"📊 Pipeline Status [ID: #{matched_info['db_id']}]", color=0xF39C12)
+                embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
+                embed.add_field(name="Owner", value=matched_info["username"], inline=True)
+                embed.add_field(name="Burner Email", value=f"`{matched_info['address']}`", inline=False)
+                embed.add_field(name="Pipeline State", value=matched_info["status"], inline=False)
+                embed.add_field(name="Subject", value=matched_info["subject"], inline=False)
                 await message.reply(embed=embed)
                 return
             else:
-                await message.reply(f"❌ Could not find burner address `{query_burner}` in the database.")
+                await message.reply(f"❌ Could not find pipeline with ID/Address `{query_key}` in the database.")
                 return
 
     # 3. Free-flowing Code-Brain Chat
