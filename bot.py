@@ -4,11 +4,11 @@ import smtplib
 from email.message import EmailMessage
 import asyncio
 import threading
+import requests
 from flask import Flask
 import discord
 from discord.ext import commands
 from faker import Faker
-from tempmail import EMail
 from PIL import Image, ImageDraw, ImageFont
 
 # --- Flask Tiny Web Server (For Render Port Binding) ---
@@ -34,7 +34,7 @@ fake = Faker("en_GB")
 
 # --- Discord Intents Setup ---
 intents = discord.Intents.default()
-intents.message_content = True  # Required to read commands!
+intents.message_content = True  
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- ADVANCED HUMANIZER POOLS ---
@@ -72,6 +72,47 @@ SIGN_OFFS = [
 ]
 
 
+class SafeTempMail:
+    def __init__(self):
+        self.domain = "1secmail.com"
+        letters = "abcdefghijklmnopqrstuvwxyz0123456789"
+        self.username = ''.join(random.choice(letters) for i in range(10))
+        self.address = f"{self.username}@{self.domain}"
+        
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            resp = requests.get("https://www.1secmail.com/api/v1/?action=getDomainList", headers=headers, timeout=5)
+            if resp.status_code == 200:
+                domains = resp.json()
+                if domains:
+                    self.domain = random.choice(domains)
+                    self.address = f"{self.username}@{self.domain}"
+        except Exception:
+            pass 
+
+    def check_inbox(self):
+        try:
+            headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+            url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={self.username}&domain={self.domain}"
+            resp = requests.get(url, headers=headers, timeout=5)
+            if resp.status_code == 200:
+                messages = resp.json()
+                if messages and len(messages) > 0:
+                    msg_id = messages[0]['id']
+                    detail_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={self.username}&domain={self.domain}&id={msg_id}"
+                    detail_resp = requests.get(detail_url, headers=headers, timeout=5)
+                    if detail_resp.status_code == 200:
+                        data = detail_resp.json()
+                        class DummyMsg:
+                            subject = data.get('subject', 'No Subject')
+                            from_addr = data.get('from', 'Unknown')
+                            body = data.get('textBody', data.get('body', ''))
+                        return DummyMsg()
+        except Exception:
+            pass
+        return None
+
+
 def generate_human_complaint(item, town, street):
     opening = random.choice(OPENINGS)
     scenario = random.choice(SCENARIOS).format(item=item)
@@ -93,7 +134,6 @@ def generate_human_complaint(item, town, street):
 
 
 def create_email_image(sender, recipient, subject, body, output_path="sent_complaint.png"):
-    """Draws an image showing the exact email dispatched to Greggs."""
     width, height = 800, 500
     image = Image.new("RGB", (width, height), color="#FFF3E0")
     draw = ImageDraw.Draw(image)
@@ -123,7 +163,6 @@ def create_email_image(sender, recipient, subject, body, output_path="sent_compl
 
 
 def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
-    """Draws an image displaying Greggs' support response."""
     width, height = 800, 500
     image = Image.new("RGB", (width, height), color="#FFF3E0")
     draw = ImageDraw.Draw(image)
@@ -150,52 +189,47 @@ def create_reply_image(sender, subject, body, output_path="greggs_reply.png"):
     return output_path
 
 
-def build_progress_bar(progress_percent, total_blocks=10):
-    """Generates a clean visual block-based progress bar."""
+def build_emoji_progress_bar(progress_percent, total_blocks=10):
     filled_blocks = int(round(total_blocks * (progress_percent / 100)))
     empty_blocks = total_blocks - filled_blocks
-    bar = "█" * filled_blocks + "░" * empty_blocks
-    return f"[{bar}] {progress_percent}%"
+    
+    # 🟥 for bright red progress squares, ⬛ for sleek dark empty blocks
+    bar = "🟥" * filled_blocks + "⬛" * empty_blocks
+    return f"{bar} **{progress_percent}%**"
 
 
 async def watch_burner_inbox_with_progress(temp_email, status_message, burner_address, max_wait_seconds=7200):
-    """Updates a live Discord message with a real block progress bar while waiting for Greggs."""
     elapsed = 0
-    check_interval = 30  # Update every 30 seconds
+    check_interval = 30 
 
     while elapsed < max_wait_seconds:
         await asyncio.sleep(check_interval)
         elapsed += check_interval
         
-        # Calculate progress percentage relative to total wait time
         percent = min(100, int((elapsed / max_wait_seconds) * 100))
-        bar_str = build_progress_bar(percent)
+        emoji_bar_str = build_emoji_progress_bar(percent)
         
         try:
-            # Edit the active status message live in Discord
             hours_left = round((max_wait_seconds - elapsed) / 3600, 1)
             await status_message.edit(content=
                 f"✉️ **Burner inbox:** `{burner_address}`\n"
                 f"⏳ **Status:** Monitoring inbox for Greggs reply...\n"
-                f"📊 **Progress Window:** {bar_str} `(~{hours_left}h remaining)`"
+                f"📊 **Progress Window:** `(~{hours_left}h remaining)`\n"
+                f"{emoji_bar_str}"
             )
         except Exception:
             pass
 
-        try:
-            inbox = temp_email.get_inbox()
-            if inbox:
-                incoming_msg = inbox[0]
-                subject = incoming_msg.subject
-                sender = incoming_msg.from_addr
-                body = incoming_msg.body
-                
-                img_path = create_reply_image(sender, subject, body[:700])
-                file = discord.File(img_path, filename="greggs_reply.png")
-                await status_message.channel.send(f"🚨 **Greggs support has replied to your burner email!**", file=file)
-                return
-        except Exception:
-            continue
+        incoming_msg = temp_email.check_inbox()
+        if incoming_msg:
+            subject = incoming_msg.subject
+            sender = incoming_msg.from_addr
+            body = incoming_msg.body
+            
+            img_path = create_reply_image(sender, subject, body[:700])
+            file = discord.File(img_path, filename="greggs_reply.png")
+            await status_message.channel.send(f"🚨 **Greggs support has replied to your burner email!**", file=file)
+            return
 
     await status_message.channel.send(f"⏰ **Timed out:** Greggs did not reply within the 2-hour window for burner inbox `{burner_address}`.")
 
@@ -211,19 +245,16 @@ async def greg(ctx, action: str = None):
     if action == "gen":
         print(f"Command '!greg gen' triggered by {ctx.author}")
         
-        # 1. Generate temp email
-        temp_email = EMail()
+        temp_email = SafeTempMail()
         burner_address = temp_email.address
         
         item = random.choice(ITEMS)
         town = fake.city()
         street = fake.street_address()
 
-        # 2. Build humanized complaint text
         email_body, name = generate_human_complaint(item, town, street)
         subject_line = f"Disappointed with my visit to {town} branch"
 
-        # 3. Create and send visual proof picture of the sent message
         sent_img_path = create_email_image(burner_address, GREGGS_SUPPORT_EMAIL, subject_line, email_body)
         sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
         
@@ -233,7 +264,6 @@ async def greg(ctx, action: str = None):
             file=sent_file
         )
 
-        # 4. Format SMTP message headers
         msg = EmailMessage()
         msg.set_subject(subject_line)
         msg["From"] = burner_address 
@@ -241,7 +271,6 @@ async def greg(ctx, action: str = None):
         msg["Reply-To"] = burner_address 
         msg.set_content(email_body)
 
-        # 5. Send out via SMTP
         try:
             with smtplib.SMTP_SSL(SMTP_SERVER, SMTP_PORT) as server:
                 server.login(AUTH_EMAIL, AUTH_PASSWORD)
@@ -250,15 +279,14 @@ async def greg(ctx, action: str = None):
             await ctx.send(f"❌ Failed to dispatch email: {e}")
             return
 
-        # 6. Send initial progress bar message that will live-update
-        initial_bar = build_progress_bar(0)
+        initial_emoji_bar = build_emoji_progress_bar(0)
         status_message = await ctx.send(
             f"✉️ **Burner inbox:** `{burner_address}`\n"
             f"⏳ **Status:** Complaint dispatched! Monitoring inbox...\n"
-            f"📊 **Progress Window:** {initial_bar} `(~2.0h remaining)`"
+            f"📊 **Progress Window:** `(~2.0h remaining)`\n"
+            f"{initial_emoji_bar}"
         )
 
-        # 7. Start live background watcher with progress updates
         bot.loop.create_task(watch_burner_inbox_with_progress(temp_email, status_message, burner_address, max_wait_seconds=7200))
     else:
         await ctx.send("⚠️ Usage: Type `!greg gen` to generate and send a humanized complaint to Greggs!")
@@ -269,10 +297,7 @@ if __name__ == "__main__":
     if not TOKEN:
         print("Error: DISCORD_TOKEN is missing!")
     else:
-        # Start Flask web server for Render health checks
         server_thread = threading.Thread(target=run_web_server)
         server_thread.daemon = True
         server_thread.start()
-        
-        # Start Discord Bot
         bot.run(TOKEN)
