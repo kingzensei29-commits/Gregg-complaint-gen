@@ -264,14 +264,10 @@ def has_user_access(user_roles, required_tier):
         return True 
     return False
 
-# --- DYNAMICALLY REGISTER INDIVIDUAL BRAND COMMANDS ---
+# --- DYNAMICALLY REGISTER INDIVIDUAL BRAND COMMANDS (NO NUMBERS REQUIRED) ---
 for brand_key, b_data in BRANDS.items():
     @bot.command(name=brand_key)
-    async def brand_command(ctx, action: str = None, *, brand_k=brand_key):
-        if action != "gen":
-            await ctx.send(f"⚠️ Usage: `!{brand_k} gen` to file a {BRANDS[brand_k]['name']} complaint.")
-            return
-
+    async def brand_command(ctx, *, brand_k=brand_key):
         b_info = BRANDS[brand_k]
         required_tier = b_info.get("min_tier", "members")
 
@@ -291,7 +287,7 @@ for brand_key, b_data in BRANDS.items():
 
         try:
             msg = EmailMessage()
-            msg.set_subject(subject_line)
+            msg["Subject"] = subject_line  # Fixed dictionary assignment
             msg["From"] = burner_address 
             msg["To"] = b_info["email"]
             msg["Reply-To"] = burner_address 
@@ -307,11 +303,10 @@ for brand_key, b_data in BRANDS.items():
         status_message = await ctx.send(f"⏳ Monitoring response inbox for `{burner_address}`...")
         bot.loop.create_task(watch_burner_inbox(ctx, ctx.author.id, ctx.author.name, brand_k, temp_email, status_message, burner_address))
 
-# --- BULK GENERATION COMMAND (OGs and Above) ---
+# --- BULK GENERATION COMMAND (OGs and Above, accepts numbers) ---
 @bot.command(name="bulkgen")
 async def bulk_generation(ctx, brand_key: str = None, count: int = 5):
     """Allows OGs and higher tiers to run bulk generation runs up to 100."""
-    # Enforce check: Must be at least OG tier or higher (or Admin)
     user_roles = [r.id for r in ctx.author.roles]
     is_qualified = (
         ctx.author.guild_permissions.administrator or
@@ -359,7 +354,7 @@ async def list_brands(ctx):
     for tier_name in ["privates", "exclusive", "vips", "og", "members"]:
         brand_keys = [k for k, v in BRANDS.items() if v.get("min_tier") == tier_name]
         if brand_keys:
-            formatted_cmds = ", ".join([f"`!{b} gen`" for b in brand_keys])
+            formatted_cmds = ", ".join([f"`!{b}`" for b in brand_keys])
             embed.add_field(name=f"🔹 {tier_name.upper()} TIER", value=formatted_cmds, inline=False)
     await ctx.send(embed=embed)
 
