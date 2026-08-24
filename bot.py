@@ -17,7 +17,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Secured UK Mistral Pipeline Bot is online!"
+    return "🟢 Secured UK Mistral Brain-Integrated Bot is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -47,7 +47,8 @@ def brevo_inbound_webhook():
             subject = item.get("Subject", "Support Reply")
             attachments = item.get("Attachments", [])
 
-            pipelines = load_json_file("persistent_pipelines.json", {})
+            brain = load_brain()
+            pipelines = brain.get("persistent_pipelines", {})
             matched_pipeline = None
             
             for p_key, p_data in pipelines.items():
@@ -85,19 +86,43 @@ def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
-# UK Locale enforced strictly for names and location contexts
 fake = Faker("en_GB")
 
 intents = discord.Intents.default()
 intents.message_content = True  
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-ECONOMY_FILE = "user_economy.json"
-ACTIVE_USERS_FILE = "active_users.json"
-USAGE_STATS_FILE = "user_usage_stats.json"
-BURNER_REGISTRY_FILE = "burner_registry.json"
-PERSISTENT_PIPELINES_FILE = "persistent_pipelines.json"
+BRAIN_FILE = "brain.json"
 BRANDS_FILE = "brands.json"
+
+def load_brain():
+    default_structure = {
+        "economy": {},
+        "active_users": {},
+        "usage_stats": {},
+        "burner_registry": {},
+        "persistent_pipelines": {}
+    }
+    if os.path.exists(BRAIN_FILE):
+        try:
+            with open(BRAIN_FILE, "r", encoding="utf-8") as f:
+                data = json.load(f)
+                for key in default_structure:
+                    if key not in data:
+                        data[key] = default_structure[key]
+                return data
+        except Exception:
+            pass
+    return default_structure
+
+def save_brain(data):
+    try:
+        with open(BRAIN_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=4)
+    except Exception as e:
+        print(f"Failed to save brain.json: {e}")
+
+BRANDS = load_json_file(BRANDS_FILE, {})
 
 def load_json_file(filename, default_val=None):
     if default_val is None:
@@ -110,80 +135,57 @@ def load_json_file(filename, default_val=None):
             pass
     return default_val
 
-def save_json_file(filename, data):
-    try:
-        with open(filename, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"Failed to save {filename}: {e}")
+def generate_custom_complaint_id(username):
+    clean_name = re.sub(r'[^a-zA-Z]', '', username).lower()
+    if len(clean_name) < 4:
+        clean_name = (clean_name + "user")[:4]
+    else:
+        clean_name = clean_name[:4]
+    
+    part1 = ''.join(random.choices("0123456789ABCDEF", k=4))
+    part2 = ''.join(random.choices("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=4))
+    return f"{clean_name}-{part1}-{part2}"
 
-BRANDS = load_json_file(BRANDS_FILE, {})
-
-def load_economy():
-    return load_json_file(ECONOMY_FILE, {})
-
-def save_economy(data):
-    save_json_file(ECONOMY_FILE, data)
-
-def load_active_users():
-    return load_json_file(ACTIVE_USERS_FILE, {})
-
-def save_active_users(data):
-    save_json_file(ACTIVE_USERS_FILE, data)
-
-def load_usage_stats():
-    return load_json_file(USAGE_STATS_FILE, {})
-
-def save_usage_stats(data):
-    save_json_file(USAGE_STATS_FILE, data)
-
-def load_burner_registry():
-    return load_json_file(BURNER_REGISTRY_FILE, {})
-
-def save_burner_registry(data):
-    save_json_file(BURNER_REGISTRY_FILE, data)
-
-def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, db_id):
-    pipelines = load_json_file(PERSISTENT_PIPELINES_FILE, {})
+def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, custom_id):
+    brain = load_brain()
     key = f"{burner_username}@{burner_domain}"
-    pipelines[key] = {
+    brain["persistent_pipelines"][key] = {
         "user_id": str(user_id),
         "username": username,
         "brand_name": brand_name,
         "burner_username": burner_username,
         "burner_domain": burner_domain,
-        "db_id": db_id
+        "custom_id": custom_id
     }
-    save_json_file(PERSISTENT_PIPELINES_FILE, pipelines)
+    save_brain(brain)
 
 def remove_persistent_pipeline(burner_address):
-    pipelines = load_json_file(PERSISTENT_PIPELINES_FILE, {})
+    brain = load_brain()
+    pipelines = brain.get("persistent_pipelines", {})
     key = burner_address.lower()
     for p_key, p_data in list(pipelines.items()):
         if p_key == key or f"{p_data['burner_username']}@{p_data['burner_domain']}".lower() == key:
             del pipelines[p_key]
-            save_json_file(PERSISTENT_PIPELINES_FILE, pipelines)
+            save_brain(brain)
             break
 
-def log_user_usage(user_id, username, brand_name, burner_address, subject, body):
-    stats = load_usage_stats()
+def log_user_usage(user_id, username, brand_name, burner_address, subject, body, custom_id):
+    brain = load_brain()
     uid = str(user_id)
-    if uid not in stats:
-        stats[uid] = {"total_generations": 0, "history": []}
     
-    stats[uid]["total_generations"] += 1
-    stats[uid]["history"].append({
+    if uid not in brain["usage_stats"]:
+        brain["usage_stats"][uid] = {"total_generations": 0, "history": []}
+    
+    brain["usage_stats"][uid]["total_generations"] += 1
+    brain["usage_stats"][uid]["history"].append({
         "brand": brand_name,
         "burner": burner_address,
-        "subject": subject
+        "subject": subject,
+        "custom_id": custom_id
     })
-    save_usage_stats(stats)
-
-    registry = load_burner_registry()
-    next_id = len(registry) + 1
     
-    registry[str(next_id)] = {
-        "db_id": next_id,
+    brain["burner_registry"][custom_id] = {
+        "custom_id": custom_id,
         "address": burner_address.lower(),
         "user_id": uid,
         "username": username,
@@ -192,31 +194,30 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body)
         "body_snippet": body[:200],
         "status": "Active UK Pipeline Awaiting Response"
     }
-    save_burner_registry(registry)
-    return next_id
+    save_brain(brain)
 
 def update_burner_status_by_address(burner_address, new_status):
-    registry = load_burner_registry()
+    brain = load_brain()
     b_key = burner_address.lower()
-    for k, info in registry.items():
+    for k, info in brain["burner_registry"].items():
         if info["address"] == b_key:
             info["status"] = new_status
-            save_burner_registry(registry)
+            save_brain(brain)
             break
 
 def add_user_voucher(user_id, username, brand_name, value, custom_code):
-    data = load_economy()
+    brain = load_brain()
     uid = str(user_id)
-    if uid not in data:
-        data[uid] = {"balance": 0.0, "vouchers": []}
+    if uid not in brain["economy"]:
+        brain["economy"][uid] = {"balance": 0.0, "vouchers": []}
     
-    data[uid]["vouchers"].append({
+    brain["economy"][uid]["vouchers"].append({
         "code": custom_code,
         "name": f"{brand_name} Voucher",
         "value": value,
         "status": "Verified & Secure UK"
     })
-    save_economy(data)
+    save_brain(brain)
 
 async def deliver_voucher_dm(user_id, brand_name, subject, code, value, body, attachments):
     try:
@@ -254,13 +255,11 @@ def generate_mistral_complaint(brand_key):
         return email_body, consistent_name, town, f"Poor service and product failure at {town} branch"
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    
-    # Strictly UK context prompt emphasizing zero mention of receipts
     prompt = (
         f"You are writing a detailed, formal customer complaint email targeted at UK consumer standards for the brand '{b_data['name']}' regarding their branch in {town}. "
         f"STRICT DIRECTIVES:\n"
         f"1. Invent a specific, logical product failure or appalling staff service issue.\n"
-        f"2. Write in a serious, frustrated British English tone (using UK phrasing) demanding a goodwill gesture or voucher.\n"
+        f"2. Write in a serious, frustrated British English tone demanding a goodwill gesture or voucher.\n"
         f"3. ABSOLUTELY NEVER mention receipts, proof of purchase, or transaction slips.\n"
         f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
         f"5. The very first line must start with 'SUBJECT: ' followed by a custom subject line."
@@ -295,16 +294,14 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
         return "Mistral API key is missing."
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    active_data = load_active_users()
-    economy_data = load_economy()
-    usage_stats = load_usage_stats()
-    
+    brain = load_brain()
     user_uid = str(author_id)
+    
     system_prompt = (
         f"You are Mistral, secure code-brain supervisor for this UK grievance pipeline.\n"
         f"- User: {author_name} (ID: {author_id})\n"
-        f"- Total Pipelines: {usage_stats.get(user_uid, {}).get('total_generations', 0)}\n"
-        f"- Secured Vouchers: {len(economy_data.get(user_uid, {}).get('vouchers', []))}"
+        f"- Total Pipelines: {brain['usage_stats'].get(user_uid, {}).get('total_generations', 0)}\n"
+        f"- Secured Vouchers: {len(brain['economy'].get(user_uid, {}).get('vouchers', []))}"
     )
 
     payload = {
@@ -351,7 +348,7 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Secure UK Brevo Webhook Listener Active.")
+    print(f"Logged in as {bot.user.name} | Secure UK Brain-Connected Webhook Listener Active.")
 
 @bot.event
 async def on_message(message):
@@ -369,7 +366,8 @@ async def on_message(message):
             ctx = await bot.get_context(message)
             uid_str = str(ctx.author.id)
             
-            active_users = load_active_users()
+            brain = load_brain()
+            active_users = brain.get("active_users", {})
             current_active = active_users.get(uid_str, 0)
             
             try:
@@ -378,7 +376,8 @@ async def on_message(message):
                 pass
 
             active_users[uid_str] = current_active + 1
-            save_active_users(active_users)
+            brain["active_users"] = active_users
+            save_brain(brain)
 
             b_info = BRANDS[brand_query]
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
@@ -386,14 +385,16 @@ async def on_message(message):
             burner_obj = DynamicBurnerMailbox(complaint_name)
             burner_address = burner_obj.address
 
-            db_id = log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body)
-            register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, db_id)
+            custom_id = generate_custom_complaint_id(message.author.name)
+            
+            log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body, custom_id)
+            register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, custom_id)
 
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
             email_client_layout = (
-                f"🛡️ **{b_info['name']}** UK Pipeline [ID: `#{db_id}`]\n"
+                f"🛡️ **{b_info['name']}** UK Pipeline [ID: `{custom_id}`]\n"
                 f"> **Dispatch Address:** `{burner_address}`\n"
                 f"> **Target Support:** `{b_info['email']}`\n"
                 f"> **Subject Line:** `{subject_line}`\n"
@@ -421,12 +422,12 @@ async def on_message(message):
             try:
                 await asyncio.to_thread(send_brevo_email)
             except Exception as e:
-                active_users = load_active_users()
-                if uid_str in active_users:
-                    active_users[uid_str] -= 1
-                    if active_users[uid_str] <= 0:
-                        del active_users[uid_str]
-                    save_active_users(active_users)
+                brain = load_brain()
+                if uid_str in brain["active_users"]:
+                    brain["active_users"][uid_str] -= 1
+                    if brain["active_users"][uid_str] <= 0:
+                        del brain["active_users"][uid_str]
+                    save_brain(brain)
                 update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
                 await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
@@ -436,19 +437,21 @@ async def on_message(message):
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
-            query_key = parts[1].strip().replace("#", "").lower()
-            registry = load_burner_registry()
+            query_key = parts[1].strip()
+            brain = load_brain()
+            registry = brain.get("burner_registry", {})
             matched_info = None
+            
             if query_key in registry:
                 matched_info = registry[query_key]
             else:
                 for k, info in registry.items():
-                    if info["address"] == query_key:
+                    if info["address"].lower() == query_key.lower() or info["custom_id"].lower() == query_key.lower():
                         matched_info = info
                         break
 
             if matched_info:
-                embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: #{matched_info['db_id']}]", color=0xF39C12)
+                embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: `{matched_info['custom_id']}`]", color=0xF39C12)
                 embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
                 embed.add_field(name="Owner", value=matched_info["username"], inline=True)
                 embed.add_field(name="Dispatch Address", value=f"`{matched_info['address']}`", inline=False)
@@ -477,14 +480,14 @@ async def show_voucher_wallet(ctx):
     except Exception:
         pass
 
-    data = load_economy()
+    brain = load_brain()
     uid = str(ctx.author.id)
     
-    if uid not in data or not data[uid]["vouchers"]:
+    if uid not in brain["economy"] or not brain["economy"][uid]["vouchers"]:
         await ctx.send(f"📦 {ctx.author.mention}, your wallet ledger is empty!")
         return
 
-    vouchers = data[uid]["vouchers"]
+    vouchers = brain["economy"][uid]["vouchers"]
     embed = discord.Embed(title=f"💳 {ctx.author.name}'s Secured UK Vouchers", color=0x3498DB)
     for i, v in enumerate(vouchers, 1):
         field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: 🟢 **Verified & Secure**"
