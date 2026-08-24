@@ -14,7 +14,7 @@ from cryptography.fernet import Fernet
 
 # --- Encryption Core Setup ---
 def get_cipher():
-    key = os.getenv("ENCRYPTION_KEY")
+    key=os.getenv("ENCRYPTION_KEY")
     if not key:
         key = Fernet.generate_key()
         print(f"⚠️ Warning: ENCRYPTION_KEY not found in environment. Generated temporary key: {key.decode()}")
