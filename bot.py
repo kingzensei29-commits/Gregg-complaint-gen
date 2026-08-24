@@ -98,10 +98,7 @@ def brevo_inbound_webhook():
                 brand_name = matched_pipeline["brand_name"]
                 burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
                 
-                # Check for phone/security verification triggers first
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
-                
-                # Check if the support reply includes a voucher, gift card, credit, or compensation
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
                 if requires_verification:
@@ -120,7 +117,6 @@ def brevo_inbound_webhook():
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
-                    # Regular support response without a voucher — silently close pipeline without DMing user
                     update_burner_status_by_address(burner_address, "Support response received (No voucher, skipped DM)")
                     remove_persistent_pipeline(burner_address)
 
@@ -346,7 +342,6 @@ async def on_message(message):
     if bot.user in message.mentions:
         api_key = os.getenv("MISTRAL_API_KEY")
         if api_key:
-            # Clean the mention out of the text
             clean_prompt = message.clean_content.replace(f"@{bot.user.name}", "").strip()
             if clean_prompt:
                 headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
@@ -368,6 +363,7 @@ async def on_message(message):
         await message.reply("Hey there! Make sure `MISTRAL_API_KEY` is configured if you want me to talk back.")
         return
 
+    # --- VAULT PHONE COMMAND ---
     if content_lower.startswith("!setphone"):
         parts = content.split(" ", 1)
         if len(parts) > 1:
@@ -391,8 +387,9 @@ async def on_message(message):
                 await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                 return
 
-    if content_lower.startswith("!") and content_lower.endswith(" gen"):
-        brand_query = content_lower[1:-4].strip()
+    # --- RESTORED ORIGINAL BRAND GEN LOGIC ---
+    if content_lower.startswith("!"):
+        brand_query = content_lower[1:].strip()
         
         if brand_query in BRANDS:
             ctx = await bot.get_context(message)
