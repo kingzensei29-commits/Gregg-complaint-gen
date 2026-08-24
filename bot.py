@@ -20,8 +20,8 @@ def load_json_file(filename, default_val=None):
         try:
             with open(filename, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"Error loading {filename}: {e}")
     return default_val
 
 # --- Flask Web Server with Secured Brevo Inbound Webhook ---
@@ -121,12 +121,20 @@ def load_brain():
         try:
             with open(BRAIN_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
+                # Ensure all root keys exist without overwriting existing data
+                updated = False
                 for key in default_structure:
                     if key not in data:
                         data[key] = default_structure[key]
+                        updated = True
+                if updated:
+                    save_brain(data)
                 return data
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"⚠️ Warning: Failed to parse brain.json ({e}). Re-initializing safe structure.")
+    
+    # Create file if it doesn't exist
+    save_brain(default_structure)
     return default_structure
 
 def save_brain(data):
@@ -134,7 +142,7 @@ def save_brain(data):
         with open(BRAIN_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=4)
     except Exception as e:
-        print(f"Failed to save brain.json: {e}")
+        print(f"❌ Critical Error saving brain.json: {e}")
 
 def generate_custom_complaint_id(username):
     clean_name = re.sub(r'[^a-zA-Z]', '', username).lower()
@@ -434,7 +442,7 @@ async def on_message(message):
                 return
             return
 
-    # Status Check Command (Fully Foolproof Case-Insensitive Lookup)
+    # Status Check Command
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
