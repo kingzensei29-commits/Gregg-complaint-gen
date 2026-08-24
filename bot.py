@@ -128,17 +128,17 @@ def brevo_inbound_webhook():
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
-                current_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+                current_timestamp = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
 
                 if requires_verification:
-                    update_burner_status(custom_id, f"Awaiting Phone Verification | {current_timestamp}")
+                    update_burner_status(custom_id, f"Awaiting Phone Verification (Logged {current_timestamp})")
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
                             notify_user_with_vault_phone(user_id, brand_name, subject, email_body),
                             bot.loop
                         )
                 elif has_voucher:
-                    update_burner_status(custom_id, f"🎁 Voucher Received! Ready | {current_timestamp}")
+                    update_burner_status(custom_id, f"Voucher Received & Verified ({current_timestamp})")
                     update_pipeline_reply_snippet(custom_id, email_body[:300])
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
@@ -147,7 +147,7 @@ def brevo_inbound_webhook():
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
-                    update_burner_status(custom_id, f"Support Response Received | {current_timestamp}")
+                    update_burner_status(custom_id, f"Support Response Received ({current_timestamp})")
                     update_pipeline_reply_snippet(custom_id, email_body[:300])
                     remove_persistent_pipeline(burner_address)
 
@@ -226,7 +226,7 @@ def find_pipeline_by_id(search_id):
             b_user = v.get('burner_username', 'burner')
             b_domain = v.get('burner_domain', 'local')
             burner_address = f"{b_user}@{b_domain}".lower()
-            timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+            timestamp_str = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
             
             pipeline_data = {
                 "custom_id": resolved_id,
@@ -237,7 +237,7 @@ def find_pipeline_by_id(search_id):
                 "subject": "Formal Complaint & Compensation Request",
                 "body_snippet": "Pipeline active and awaiting support response...",
                 "reply_snippet": "No response yet",
-                "status": f"Active UK Pipeline Awaiting Voucher | {timestamp_str}",
+                "status": f"Active UK Pipeline Awaiting Voucher ({timestamp_str})",
                 "timestamp": timestamp_str,
                 "redeemed": False
             }
@@ -278,7 +278,7 @@ def remove_persistent_pipeline(burner_address):
 def log_user_usage(user_id, username, brand_name, burner_address, subject, body, custom_id):
     brain = load_brain()
     uid = str(user_id)
-    timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+    timestamp_str = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
     
     if uid not in brain["usage_stats"]:
         brain["usage_stats"][uid] = {"total_generations": 0, "history": []}
@@ -301,7 +301,7 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "subject": subject,
         "body_snippet": body[:500],
         "reply_snippet": "No response yet",
-        "status": f"Active UK Pipeline Awaiting Voucher | {timestamp_str}",
+        "status": f"Active UK Pipeline Awaiting Voucher ({timestamp_str})",
         "timestamp": timestamp_str,
         "redeemed": False
     }
