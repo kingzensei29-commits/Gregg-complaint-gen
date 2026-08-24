@@ -188,34 +188,7 @@ def generate_custom_complaint_id(username):
     return f"{clean_name}-{part1}-{part2}"
 
 def find_pipeline_by_id(search_id):
-    """Robust case-insensitive search across burner_registry and persistent_pipelines."""
-    brain = load_brain()
-    search_clean = search_id.strip().lower()
-    
-    # 1. Search in burner_registry values
-    registry = brain.get("burner_registry", {})
-    for k, v in registry.items():
-        if k.lower() == search_clean or v.get("custom_id", "").lower() == search_clean:
-            return k, v
-
-    # 2. Search in persistent_pipelines values
-    pipelines = brain.get("persistent_pipelines", {})
-    for k, v in pipelines.items():
-        if v.get("custom_id", "").lower() == search_clean or k.lower() == search_clean:
-            return v.get("custom_id", search_id), {
-                "custom_id": v.get("custom_id", search_id),
-                "address": f"{v.get('burner_username')}@{v.get('burner_domain')}".lower(),
-                "user_id": v.get("user_id"),
-                "username": v.get("username"),
-                "brand": v.get("brand_name"),
-                "subject": "Formal Complaint & Compensation Request",
-                "body_snippet": "Pipeline active and awaiting support response...",
-                "reply_snippet": "No response yet",
-                "status": "Active UK Pipeline Awaiting Voucher",
-                "redeemed": False
-            }
- def find_pipeline_by_id(search_id):
-    """Robust case-insensitive search across burner_registry and persistent_pipelines."""
+    """Robust case-insensitive search across burner_registry and persistent_pipelines with fallback synchronization."""
     brain = load_brain()
     search_clean = search_id.strip().lower()
     
@@ -232,7 +205,6 @@ def find_pipeline_by_id(search_id):
             custom_id = v.get("custom_id", search_id)
             burner_address = f"{v.get('burner_username')}@{v.get('burner_domain')}".lower()
             
-            # Reconstruct or pull if it exists in registry under another key
             pipeline_data = {
                 "custom_id": custom_id,
                 "address": burner_address,
@@ -246,7 +218,6 @@ def find_pipeline_by_id(search_id):
                 "redeemed": False
             }
             
-            # Save it back to burner_registry so future lookups succeed instantly
             if "burner_registry" not in brain:
                 brain["burner_registry"] = {}
             brain["burner_registry"][custom_id] = pipeline_data
@@ -254,6 +225,31 @@ def find_pipeline_by_id(search_id):
             
             return custom_id, pipeline_data
             
+    return None, None
+
+def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, custom_id):
+    brain = load_brain()
+    key = f"{burner_username}@{burner_domain}"
+    brain["persistent_pipelines"][key] = {
+        "user_id": str(user_id),
+        "username": username,
+        "brand_name": brand_name,
+        "burner_username": burner_username,
+        "burner_domain": burner_domain,
+        "custom_id": custom_id
+    }
+    save_brain(brain)
+
+def remove_persistent_pipeline(burner_address):
+    brain = load_brain()
+    pipelines = brain.get("persistent_pipelines", {})
+    key = burner_address.lower()
+    for p_key, p_data in list(pipelines.items()):
+        if p_key == key or f"{p_data.get('burner_username')}@{p_data.get('burner_domain')}".lower() == key:
+            del pipelines[p_key]
+            save_brain(brain)
+            break
+
 def log_user_usage(user_id, username, brand_name, burner_address, subject, body, custom_id):
     brain = load_brain()
     uid = str(user_id)
