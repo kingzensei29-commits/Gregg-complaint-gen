@@ -342,6 +342,32 @@ async def on_message(message):
     content = message.content.strip()
     content_lower = content.lower()
 
+    # --- PING / MISTRAL CHAT INTEGRATION ---
+    if bot.user in message.mentions:
+        api_key = os.getenv("MISTRAL_API_KEY")
+        if api_key:
+            # Clean the mention out of the text
+            clean_prompt = message.clean_content.replace(f"@{bot.user.name}", "").strip()
+            if clean_prompt:
+                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                payload = {
+                    "model": "mistral-small-latest",
+                    "messages": [{"role": "user", "content": clean_prompt}],
+                    "temperature": 0.7,
+                    "max_tokens": 300
+                }
+                try:
+                    res = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=10)
+                    if res.status_code == 200:
+                        reply_text = res.json()["choices"][0]["message"]["content"].strip()
+                        await message.reply(reply_text)
+                        return
+                except Exception as e:
+                    print(f"Mistral chat error: {e}")
+        
+        await message.reply("Hey there! Make sure `MISTRAL_API_KEY` is configured if you want me to talk back.")
+        return
+
     if content_lower.startswith("!setphone"):
         parts = content.split(" ", 1)
         if len(parts) > 1:
