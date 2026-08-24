@@ -7,6 +7,7 @@ import re
 import traceback
 import base64
 import hashlib
+from datetime import datetime
 import requests
 from flask import Flask, request, jsonify
 import discord
@@ -19,7 +20,6 @@ from cryptography.fernet import Fernet
 def get_cipher():
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
-        # Use a consistent fallback seed so it never changes unpredictably across restarts
         fallback_seed = "stable_pipeline_bot_fallback_encryption_seed_2026"
         digest = hashlib.sha256(fallback_seed.encode()).digest()
         key = base64.urlsafe_b64encode(digest)
@@ -128,15 +128,17 @@ def brevo_inbound_webhook():
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
+                current_timestamp = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+
                 if requires_verification:
-                    update_burner_status(custom_id, "Awaiting Phone Verification (Vault Auto-Fetch)")
+                    update_burner_status(custom_id, f"Awaiting Phone Verification | {current_timestamp}")
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
                             notify_user_with_vault_phone(user_id, brand_name, subject, email_body),
                             bot.loop
                         )
                 elif has_voucher:
-                    update_burner_status(custom_id, "🎁 Voucher/Refund Received! Ready to Redeem")
+                    update_burner_status(custom_id, f"🎁 Voucher Received! Ready | {current_timestamp}")
                     update_pipeline_reply_snippet(custom_id, email_body[:300])
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
@@ -145,7 +147,7 @@ def brevo_inbound_webhook():
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
-                    update_burner_status(custom_id, "Support Response Received (No Voucher yet)")
+                    update_burner_status(custom_id, f"Support Response Received | {current_timestamp}")
                     update_pipeline_reply_snippet(custom_id, email_body[:300])
                     remove_persistent_pipeline(burner_address)
 
@@ -224,6 +226,7 @@ def find_pipeline_by_id(search_id):
             b_user = v.get('burner_username', 'burner')
             b_domain = v.get('burner_domain', 'local')
             burner_address = f"{b_user}@{b_domain}".lower()
+            timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
             
             pipeline_data = {
                 "custom_id": resolved_id,
@@ -234,7 +237,8 @@ def find_pipeline_by_id(search_id):
                 "subject": "Formal Complaint & Compensation Request",
                 "body_snippet": "Pipeline active and awaiting support response...",
                 "reply_snippet": "No response yet",
-                "status": "Active UK Pipeline Awaiting Voucher",
+                "status": f"Active UK Pipeline Awaiting Voucher | {timestamp_str}",
+                "timestamp": timestamp_str,
                 "redeemed": False
             }
             
@@ -274,6 +278,7 @@ def remove_persistent_pipeline(burner_address):
 def log_user_usage(user_id, username, brand_name, burner_address, subject, body, custom_id):
     brain = load_brain()
     uid = str(user_id)
+    timestamp_str = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
     
     if uid not in brain["usage_stats"]:
         brain["usage_stats"][uid] = {"total_generations": 0, "history": []}
@@ -283,7 +288,8 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "brand": brand_name,
         "burner": burner_address,
         "subject": subject,
-        "custom_id": custom_id
+        "custom_id": custom_id,
+        "timestamp": timestamp_str
     })
     
     brain["burner_registry"][custom_id] = {
@@ -293,9 +299,10 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "username": username,
         "brand": brand_name,
         "subject": subject,
-        "body_snippet": body[:500],  # Expanded context storage
+        "body_snippet": body[:500],
         "reply_snippet": "No response yet",
-        "status": "Active UK Pipeline Awaiting Voucher",
+        "status": f"Active UK Pipeline Awaiting Voucher | {timestamp_str}",
+        "timestamp": timestamp_str,
         "redeemed": False
     }
     save_brain(brain)
@@ -364,10 +371,8 @@ class DynamicBurnerMailbox:
         self.address = f"{self.username}@{self.domain}"
 
 def clean_text_for_brands(text):
-    """Sanitizes text to strip out weird weird characters/emojis before sending to brands."""
     if not text:
         return ""
-    # Remove markdown code blocks if generated, and sanitize to clean ASCII/UTF-8 readable text
     cleaned = text.encode("ascii", "ignore").decode("ascii")
     return cleaned.strip()
 
@@ -476,7 +481,7 @@ async def on_message(message):
                 return
 
             def create_advanced_status_card():
-                width, height = 900, 680
+                width, height = 900, 710
                 image = Image.new("RGB", (width, height), color="#1E1E24")
                 draw = ImageDraw.Draw(image)
                 
@@ -495,19 +500,19 @@ async def on_message(message):
                 status_color = "#FFA500" if "Awaiting" in pipeline_info.get('status', '') else "#00FF66"
                 draw.rectangle([(30, 100), (width - 30, 160)], fill="#2D2F35", outline="#40444B", width=2)
                 draw.text((50, 110), "Current Pipeline Status:", fill="#8E9297", font=font_bold)
-                draw.text((50, 130), pipeline_info.get('status', 'Unknown'), fill=status_color, font=font_header)
+                draw.text((50, 130), pipeline_info.get('status', 'Unknown'), fill=status_color, font=font_bold)
 
                 draw.text((30, 180), f"Brand Target: {pipeline_info.get('brand', 'Unknown')}", fill="#FFFFFF", font=font_bold)
                 draw.text((30, 205), f"Burner Address: {pipeline_info.get('address', 'Unknown')}", fill="#B9BBBE", font=font_regular)
                 draw.text((30, 230), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 255), f"Dispatched Time: {pipeline_info.get('timestamp', 'Unknown')}", fill="#00B0F4", font=font_regular)
 
                 # Expanded body snippet block for complete message context
-                draw.rectangle([(30, 260), (width - 30, 460)], fill="#25272C", outline="#36393F", width=1)
-                draw.text((45, 270), "Dispatched Complaint Context / Message Body:", fill="#00B0F4", font=font_bold)
+                draw.rectangle([(30, 285), (width - 30, 485)], fill="#25272C", outline="#36393F", width=1)
+                draw.text((45, 295), "Dispatched Complaint Context / Message Body:", fill="#00B0F4", font=font_bold)
                 
-                y_text = 295
+                y_text = 320
                 body_text = pipeline_info.get('body_snippet', 'No content recorded')
-                # Word wrapping helper for clean display
                 words = body_text.split()
                 current_line = ""
                 wrapped_lines = []
@@ -522,20 +527,20 @@ async def on_message(message):
                     wrapped_lines.append(current_line)
 
                 for line in wrapped_lines:
-                    if y_text > 445:
+                    if y_text > 470:
                         draw.text((45, y_text), "[Content truncated for length...]", fill="#8E9297", font=font_regular)
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text += 18
 
                 # Reply snippet block
-                draw.rectangle([(30, 480), (width - 30, 650)], fill="#25272C", outline="#36393F", width=1)
+                draw.rectangle([(30, 505), (width - 30, 680)], fill="#25272C", outline="#36393F", width=1)
                 reply_snip = pipeline_info.get('reply_snippet', 'No response yet')
-                draw.text((45, 490), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
+                draw.text((45, 515), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
                 
-                y_text = 515
-                for line in reply_snip.splitlines()[:7]:
-                    if y_text > 630:
+                y_text = 540
+                for line in reply_snip.splitlines()[:6]:
+                    if y_text > 660:
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text += 18
