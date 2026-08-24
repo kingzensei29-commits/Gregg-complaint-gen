@@ -5,6 +5,8 @@ import threading
 import json
 import re
 import traceback
+import base64
+import hashlib
 import requests
 from flask import Flask, request, jsonify
 import discord
@@ -13,14 +15,22 @@ from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 from cryptography.fernet import Fernet
 
-# --- Encryption Core Setup (For brain.enc only) ---
+# --- Encryption Core Setup (Hardened against malformed keys) ---
 def get_cipher():
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
         key = Fernet.generate_key()
         print(f"⚠️ Warning: ENCRYPTION_KEY not found in environment. Generated temporary key: {key.decode()}")
-    if isinstance(key, str):
-        key = key.encode()
+    else:
+        try:
+            if isinstance(key, str):
+                key = key.encode()
+            # Test if it's already a valid fernet key
+            Fernet(key)
+        except Exception:
+            # Safely derive a valid 32-byte url-safe base64 key from whatever string was provided
+            digest = hashlib.sha256(key).digest()
+            key = base64.urlsafe_b64encode(digest)
     return Fernet(key)
 
 def load_encrypted_json(filename, default_val=None):
@@ -159,7 +169,6 @@ BRAIN_FILE = "brain.enc"
 BRANDS_FILE = "brands.json"
 
 RAW_BRANDS = load_plain_json(BRANDS_FILE, {})
-# Normalize brand keys to lowercase for foolproof matching
 BRANDS = {k.lower().strip(): v for k, v in RAW_BRANDS.items()}
 print(f"✅ Loaded {len(BRANDS)} brands from {BRANDS_FILE}: {list(BRANDS.keys())}")
 
@@ -197,19 +206,16 @@ def generate_custom_complaint_id(username):
     return f"{clean_name}-{part1}-{part2}"
 
 def find_pipeline_by_id(search_id):
-    """Robust case-insensitive search across burner_registry and persistent_pipelines with explicit fallback."""
     if not search_id:
         return None, None
     brain = load_brain()
     search_clean = search_id.strip().lower()
     
-    # 1. Search in burner_registry
     registry = brain.get("burner_registry", {})
     for k, v in registry.items():
         if k.lower() == search_clean or str(v.get("custom_id", "")).lower() == search_clean:
             return v.get("custom_id", k), v
 
-    # 2. Search in persistent_pipelines
     pipelines = brain.get("persistent_pipelines", {})
     for k, v in pipelines.items():
         custom_id = str(v.get("custom_id", ""))
@@ -445,7 +451,6 @@ async def on_message(message):
                     await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                     return
 
-        # 📊 Advanced Pipeline Pic Lookup Command: !pic [custom_id]
         if content_lower.startswith("!pic"):
             parts = content.split(" ", 1)
             if len(parts) < 2:
@@ -518,7 +523,6 @@ async def on_message(message):
             )
             return
 
-        # 🎁 Secure Redemption Command: !redeem [custom_id]
         if content_lower.startswith("!redeem"):
             parts = content.split(" ", 1)
             if len(parts) < 2:
@@ -601,7 +605,6 @@ async def on_message(message):
                 await message.reply(f"✅ **Identity Verified!** However, I couldn't send you a DM (please check your privacy settings). Here is your voucher file directly in the channel:", file=redeem_file)
             return
 
-        # Matches format: !<brandname> gen (e.g. !mcdonalds gen)
         if content_lower.startswith("!") and content_lower.endswith(" gen"):
             brand_query = content_lower[1:-4].strip()
             
