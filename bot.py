@@ -12,6 +12,18 @@ from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 
+# --- Helper function defined first to fix the load order ---
+def load_json_file(filename, default_val=None):
+    if default_val is None:
+        default_val = {}
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            pass
+    return default_val
+
 # --- Flask Web Server with Secured Brevo Inbound Webhook ---
 app = Flask(__name__)
 
@@ -95,6 +107,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BRAIN_FILE = "brain.json"
 BRANDS_FILE = "brands.json"
 
+BRANDS = load_json_file(BRANDS_FILE, {})
+
 def load_brain():
     default_structure = {
         "economy": {},
@@ -121,19 +135,6 @@ def save_brain(data):
             json.dump(data, f, indent=4)
     except Exception as e:
         print(f"Failed to save brain.json: {e}")
-
-BRANDS = load_json_file(BRANDS_FILE, {})
-
-def load_json_file(filename, default_val=None):
-    if default_val is None:
-        default_val = {}
-    if os.path.exists(filename):
-        try:
-            with open(filename, "r", encoding="utf-8") as f:
-                return json.load(f)
-        except Exception:
-            pass
-    return default_val
 
 def generate_custom_complaint_id(username):
     clean_name = re.sub(r'[^a-zA-Z]', '', username).lower()
