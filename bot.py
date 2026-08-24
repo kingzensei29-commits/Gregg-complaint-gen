@@ -5,31 +5,55 @@ import threading
 import json
 import re
 import requests
-from io import BytesIO
 from flask import Flask, request, jsonify
 import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
+from cryptography.fernet import Fernet
 
-# --- Helper function defined first to fix load order ---
+# --- Encryption Core Setup ---
+def get_cipher():
+    key = os.getenv("ENCRYPTION_KEY")
+    if not key:
+        key = Fernet.generate_key()
+        print(f"⚠️ Warning: ENCRYPTION_KEY not found in environment. Generated temporary key: {key.decode()}")
+    if isinstance(key, str):
+        key = key.encode()
+    return Fernet(key)
+
 def load_json_file(filename, default_val=None):
     if default_val is None:
         default_val = {}
     if os.path.exists(filename):
         try:
-            with open(filename, "r", encoding="utf-8") as f:
-                return json.load(f)
+            with open(filename, "rb") as f:
+                encrypted_data = f.read()
+            if not encrypted_data:
+                return default_val
+            cipher = get_cipher()
+            decrypted_data = cipher.decrypt(encrypted_data)
+            return json.loads(decrypted_data.decode("utf-8"))
         except Exception as e:
-            print(f"Error loading {filename}: {e}")
+            print(f"Error loading/decrypting {filename}: {e}")
     return default_val
+
+def save_json_file(filename, data):
+    try:
+        cipher = get_cipher()
+        json_str = json.dumps(data, indent=4)
+        encrypted_data = cipher.encrypt(json_str.encode("utf-8"))
+        with open(filename, "wb") as f:
+            f.write(encrypted_data)
+    except Exception as e:
+        print(f"❌ Critical Error saving/encrypting {filename}: {e}")
 
 # --- Flask Web Server with Secured Brevo Inbound Webhook ---
 app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Automated UK Grievance Bot is online!"
+    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -74,15 +98,31 @@ def brevo_inbound_webhook():
                 brand_name = matched_pipeline["brand_name"]
                 burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
                 
-                update_burner_status_by_address(burner_address, "Received support response")
+                # Check for phone/security verification triggers first
+                requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
                 
-                if bot.loop:
-                    asyncio.run_coroutine_threadsafe(
-                        deliver_support_reply_dm(user_id, brand_name, subject, email_body, attachments),
-                        bot.loop
-                    )
-                
-                remove_persistent_pipeline(burner_address)
+                # Check if the support reply includes a voucher, gift card, credit, or compensation
+                has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
+
+                if requires_verification:
+                    update_burner_status_by_address(burner_address, "Awaiting Phone Verification (Vault Auto-Fetch)")
+                    if bot.loop:
+                        asyncio.run_coroutine_threadsafe(
+                            notify_user_with_vault_phone(user_id, brand_name, subject, email_body),
+                            bot.loop
+                        )
+                elif has_voucher:
+                    update_burner_status_by_address(burner_address, "Voucher Received - User Notified")
+                    if bot.loop:
+                        asyncio.run_coroutine_threadsafe(
+                            deliver_support_reply_dm(user_id, brand_name, subject, email_body, attachments, is_voucher=True),
+                            bot.loop
+                        )
+                    remove_persistent_pipeline(burner_address)
+                else:
+                    # Regular support response without a voucher — silently close pipeline without DMing user
+                    update_burner_status_by_address(burner_address, "Support response received (No voucher, skipped DM)")
+                    remove_persistent_pipeline(burner_address)
 
         return jsonify({"status": "success", "processed": True}), 200
     except Exception as e:
@@ -99,7 +139,7 @@ intents = discord.Intents.default()
 intents.message_content = True  
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-BRAIN_FILE = "brain.json"
+BRAIN_FILE = "brain.enc"
 BRANDS_FILE = "brands.json"
 
 BRANDS = load_json_file(BRANDS_FILE, {})
@@ -109,32 +149,22 @@ def load_brain():
         "active_users": {},
         "usage_stats": {},
         "burner_registry": {},
-        "persistent_pipelines": {}
+        "persistent_pipelines": {},
+        "pending_phone_verifications": {},
+        "user_phone_vault": {}
     }
-    if os.path.exists(BRAIN_FILE):
-        try:
-            with open(BRAIN_FILE, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                updated = False
-                for key in default_structure:
-                    if key not in data:
-                        data[key] = default_structure[key]
-                        updated = True
-                if updated:
-                    save_brain(data)
-                return data
-        except Exception as e:
-            print(f"⚠️ Warning: Failed to parse brain.json ({e}). Resetting safe structure.")
-    
-    save_brain(default_structure)
-    return default_structure
+    data = load_json_file(BRAIN_FILE, default_structure)
+    updated = False
+    for key in default_structure:
+        if key not in data:
+            data[key] = default_structure[key]
+            updated = True
+    if updated:
+        save_brain(data)
+    return data
 
 def save_brain(data):
-    try:
-        with open(BRAIN_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"❌ Critical Error saving brain.json: {e}")
+    save_json_file(BRAIN_FILE, data)
 
 def generate_custom_complaint_id(username):
     clean_name = re.sub(r'[^a-zA-Z]', '', username).lower()
@@ -206,19 +236,46 @@ def update_burner_status_by_address(burner_address, new_status):
             save_brain(brain)
             break
 
-async def deliver_support_reply_dm(user_id, brand_name, subject, body, attachments):
+async def notify_user_with_vault_phone(user_id, brand_name, subject, body):
     try:
         user = await bot.fetch_user(user_id)
         if user:
+            brain = load_brain()
+            uid_str = str(user_id)
+            vaulted_phone = brain.get("user_phone_vault", {}).get(uid_str, None)
+
+            if vaulted_phone:
+                dm_text = (
+                    f"🛡️ **Security Verification Triggered by {brand_name}!**\n"
+                    f"Subject: *{subject}*\n\n"
+                    f"> *Support says:* {body[:350]}...\n\n"
+                    f"📱 **Auto-Fetched Vault Phone:** `{vaulted_phone}`\n"
+                    f"*(Use this saved number to complete the verification challenge on their portal).* "
+                )
+            else:
+                dm_text = (
+                    f"🛡️ **Security Verification Triggered by {brand_name}!**\n"
+                    f"Subject: *{subject}*\n\n"
+                    f"> *Support says:* {body[:350]}...\n\n"
+                    f"⚠️ No phone number found in your vault. Send `!setphone <number>` in chat to save one for future pipelines!"
+                )
+            await user.send(dm_text)
+    except Exception as e:
+        print(f"Failed to send vault notification DM: {e}")
+
+async def deliver_support_reply_dm(user_id, brand_name, subject, body, attachments, is_voucher=False):
+    try:
+        user = await bot.fetch_user(user_id)
+        if user and is_voucher:
             dm_text = (
-                f"📬 **Support Reply Received!**\n"
-                f"Brand: **{brand_name}**\n"
+                f"🎁 **Voucher / Reward Received from {brand_name}!**\n"
                 f"Subject: *{subject}*\n\n"
-                f"> *Snippet:* {body[:400]}..."
+                f"> *Snippet:* {body[:500]}...\n\n"
+                f"*(Pipeline has been automatically closed).* "
             )
             await user.send(dm_text)
     except Exception as e:
-        print(f"Failed to deliver secure DM: {e}")
+        print(f"Failed to deliver secure voucher DM: {e}")
 
 class DynamicBurnerMailbox:
     def __init__(self, full_name):
@@ -273,40 +330,9 @@ def generate_mistral_complaint(brand_key):
 
     return f"Service feedback reported at {town}.", consistent_name, town, "Feedback regarding service"
 
-def ask_mistral_chatbot(user_query, author_name, author_id):
-    api_key = os.getenv("MISTRAL_API_KEY")
-    if not api_key:
-        return "Mistral API key is missing."
-
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    brain = load_brain()
-    user_uid = str(author_id)
-    
-    system_prompt = (
-        f"You are Mistral, assistant for this grievance pipeline.\n"
-        f"- User: {author_name} (ID: {author_id})\n"
-        f"- Total Dispatches: {brain['usage_stats'].get(user_uid, {}).get('total_generations', 0)}"
-    )
-
-    payload = {
-        "model": "mistral-small-latest",
-        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_query}],
-        "temperature": 0.7,
-        "max_tokens": 250
-    }
-
-    try:
-        response = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=8)
-        if response.status_code == 200:
-            return response.json()["choices"][0]["message"]["content"].strip()
-    except Exception:
-        pass
-    
-    return "Telemetry error encountered."
-
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | UK Webhook Listener Active.")
+    print(f"Logged in as {bot.user.name} | Voucher-Only Pipeline Listener Active.")
 
 @bot.event
 async def on_message(message):
@@ -315,8 +341,30 @@ async def on_message(message):
 
     content = message.content.strip()
     content_lower = content.lower()
-    
-    # Generator Command (![brandname] gen)
+
+    if content_lower.startswith("!setphone"):
+        parts = content.split(" ", 1)
+        if len(parts) > 1:
+            phone_val = parts[1].strip()
+            if len(phone_val) >= 10:
+                brain = load_brain()
+                uid_str = str(message.author.id)
+                if "user_phone_vault" not in brain:
+                    brain["user_phone_vault"] = {}
+                brain["user_phone_vault"][uid_str] = phone_val
+                save_brain(brain)
+                
+                try:
+                    await message.delete()
+                except Exception:
+                    pass
+                
+                await message.channel.send(f"🔒 **Phone number securely saved to your encrypted vault!**", delete_after=10)
+                return
+            else:
+                await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
+                return
+
     if content_lower.startswith("!") and content_lower.endswith(" gen"):
         brand_query = content_lower[1:-4].strip()
         
@@ -415,42 +463,6 @@ async def on_message(message):
                 await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
             return
-
-    # Status Check Command
-    if content_lower.startswith("!status"):
-        parts = content.split()
-        if len(parts) > 1:
-            query_key = parts[1].strip().lower()
-            
-            brain = load_brain()
-            registry = brain.get("burner_registry", {})
-            matched_info = None
-            
-            for k, info in registry.items():
-                if k.lower() == query_key or info.get("custom_id", "").lower() == query_key or info.get("address", "").lower() == query_key:
-                    matched_info = info
-                    break
-
-            if matched_info:
-                embed = discord.Embed(title=f"📊 Pipeline Status [ID: `{matched_info['custom_id']}`]", color=0xF39C12)
-                embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
-                embed.add_field(name="Owner", value=matched_info["username"], inline=True)
-                embed.add_field(name="Dispatch Address", value=f"`{matched_info['address']}`", inline=False)
-                embed.add_field(name="State", value=matched_info["status"], inline=False)
-                await message.channel.send(embed=embed)
-                return
-            else:
-                await message.reply(f"❌ Could not locate pipeline ID/Address `{parts[1]}`.")
-                return
-
-    # Code-Brain Chat (Only when mentioned)
-    if bot.user.mentioned_in(message) and not content.startswith("!"):
-        clean_query = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
-        if clean_query:
-            async with message.channel.typing():
-                ai_reply = await asyncio.to_thread(ask_mistral_chatbot, clean_query, message.author.name, message.author.id)
-                await message.reply(ai_reply)
-        return
 
     await bot.process_commands(message)
 
