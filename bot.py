@@ -335,136 +335,145 @@ async def on_ready():
     print(f"Logged in as {bot.user.name} | Voucher-Only Pipeline Listener Active.")
 
 @bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        return
+    print(f"❌ Error in command {ctx.command}: {error}")
+
+@bot.event
 async def on_message(message):
     if message.author.bot:
         return
 
-    content = message.content.strip()
-    content_lower = content.lower()
+    try:
+        content = message.content.strip()
+        content_lower = content.lower()
 
-    if content_lower.startswith("!setphone"):
-        parts = content.split(" ", 1)
-        if len(parts) > 1:
-            phone_val = parts[1].strip()
-            if len(phone_val) >= 10:
+        if content_lower.startswith("!setphone"):
+            parts = content.split(" ", 1)
+            if len(parts) > 1:
+                phone_val = parts[1].strip()
+                if len(phone_val) >= 10:
+                    brain = load_brain()
+                    uid_str = str(message.author.id)
+                    if "user_phone_vault" not in brain:
+                        brain["user_phone_vault"] = {}
+                    brain["user_phone_vault"][uid_str] = phone_val
+                    save_brain(brain)
+                    
+                    try:
+                        await message.delete()
+                    except Exception:
+                        pass
+                    
+                    await message.channel.send(f"🔒 **Phone number securely saved to your encrypted vault!**", delete_after=10)
+                    return
+                else:
+                    await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
+                    return
+
+        if content_lower.startswith("!") and content_lower.endswith(" gen"):
+            brand_query = content_lower[1:-4].strip()
+            
+            if brand_query in BRANDS:
+                ctx = await bot.get_context(message)
+                uid_str = str(ctx.author.id)
+                
                 brain = load_brain()
-                uid_str = str(message.author.id)
-                if "user_phone_vault" not in brain:
-                    brain["user_phone_vault"] = {}
-                brain["user_phone_vault"][uid_str] = phone_val
-                save_brain(brain)
+                active_users = brain.get("active_users", {})
+                current_active = active_users.get(uid_str, 0)
                 
                 try:
                     await message.delete()
                 except Exception:
                     pass
+
+                active_users[uid_str] = current_active + 1
+                brain["active_users"] = active_users
+                save_brain(brain)
+
+                b_info = BRANDS[brand_query]
+                email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
                 
-                await message.channel.send(f"🔒 **Phone number securely saved to your encrypted vault!**", delete_after=10)
-                return
-            else:
-                await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
-                return
+                burner_obj = DynamicBurnerMailbox(complaint_name)
+                burner_address = burner_obj.address
 
-    if content_lower.startswith("!") and content_lower.endswith(" gen"):
-        brand_query = content_lower[1:-4].strip()
-        
-        if brand_query in BRANDS:
-            ctx = await bot.get_context(message)
-            uid_str = str(ctx.author.id)
-            
-            brain = load_brain()
-            active_users = brain.get("active_users", {})
-            current_active = active_users.get(uid_str, 0)
-            
-            try:
-                await message.delete()
-            except Exception:
-                pass
+                custom_id = generate_custom_complaint_id(message.author.name)
+                
+                log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body, custom_id)
+                register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, custom_id)
 
-            active_users[uid_str] = current_active + 1
-            brain["active_users"] = active_users
-            save_brain(brain)
+                def create_simple_email_img():
+                    width, height = 800, 540
+                    image = Image.new("RGB", (width, height), color="#FFF3E0")
+                    draw = ImageDraw.Draw(image)
+                    try:
+                        font_title = ImageFont.truetype("arial.ttf", 18)
+                        font_body = ImageFont.truetype("arial.ttf", 12)
+                    except IOError:
+                        font_title = ImageFont.load_default()
+                        font_body = ImageFont.load_default()
 
-            b_info = BRANDS[brand_query]
-            email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
-            
-            burner_obj = DynamicBurnerMailbox(complaint_name)
-            burner_address = burner_obj.address
+                    draw.rectangle([(0, 0), (width, 70)], fill=b_info["color"])
+                    draw.text((20, 20), "Official UK Grievance Dispatched", fill="white", font=font_title)
+                    content_text = f"From: {burner_address}\nTo: {b_info['email']}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
+                    
+                    y_text = 85
+                    for line in content_text.splitlines():
+                        if y_text > height - 25:
+                            break
+                        draw.text((20, y_text), line, fill="#222222", font=font_body)
+                        y_text += 17
+                    path = "sent_complaint.png"
+                    image.save(path)
+                    return path
 
-            custom_id = generate_custom_complaint_id(message.author.name)
-            
-            log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body, custom_id)
-            register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, custom_id)
+                sent_img_path = await asyncio.to_thread(create_simple_email_img)
+                sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
-            def create_simple_email_img():
-                width, height = 800, 540
-                image = Image.new("RGB", (width, height), color="#FFF3E0")
-                draw = ImageDraw.Draw(image)
+                email_client_layout = (
+                    f"🛡️ **{b_info['name']}** Pipeline [ID: `{custom_id}`]\n"
+                    f"> **Dispatch Address:** `{burner_address}`\n"
+                    f"> **Target Support:** `{b_info['email']}`\n"
+                    f"> **Subject Line:** `{subject_line}`\n"
+                    f"> ----------------------------------------\n"
+                    f"> *{email_body[:280]}...*"
+                )
+
+                await message.channel.send(email_client_layout, file=sent_file)
+
+                def send_brevo_email():
+                    api_key = os.getenv("BREVO_API_KEY")
+                    if not api_key:
+                        raise Exception("BREVO_API_KEY is missing.")
+                    url = "https://api.brevo.com/v3/smtp/email"
+                    headers = {"accept": "application/json", "api-key": api_key, "content-type": "application/json"}
+                    payload = {
+                        "sender": {"name": complaint_name, "email": burner_address},
+                        "to": [{"email": b_info["email"]}],
+                        "replyTo": {"email": burner_address},
+                        "subject": subject_line,
+                        "textContent": email_body
+                    }
+                    requests.post(url, json=payload, headers=headers, timeout=10)
+
                 try:
-                    font_title = ImageFont.truetype("arial.ttf", 18)
-                    font_body = ImageFont.truetype("arial.ttf", 12)
-                except IOError:
-                    font_title = ImageFont.load_default()
-                    font_body = ImageFont.load_default()
-
-                draw.rectangle([(0, 0), (width, 70)], fill=b_info["color"])
-                draw.text((20, 20), "Official UK Grievance Dispatched", fill="white", font=font_title)
-                content_text = f"From: {burner_address}\nTo: {b_info['email']}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
-                
-                y_text = 85
-                for line in content_text.splitlines():
-                    if y_text > height - 25:
-                        break
-                    draw.text((20, y_text), line, fill="#222222", font=font_body)
-                    y_text += 17
-                path = "sent_complaint.png"
-                image.save(path)
-                return path
-
-            sent_img_path = await asyncio.to_thread(create_simple_email_img)
-            sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
-
-            email_client_layout = (
-                f"🛡️ **{b_info['name']}** Pipeline [ID: `{custom_id}`]\n"
-                f"> **Dispatch Address:** `{burner_address}`\n"
-                f"> **Target Support:** `{b_info['email']}`\n"
-                f"> **Subject Line:** `{subject_line}`\n"
-                f"> ----------------------------------------\n"
-                f"> *{email_body[:280]}...*"
-            )
-
-            await message.channel.send(email_client_layout, file=sent_file)
-
-            def send_brevo_email():
-                api_key = os.getenv("BREVO_API_KEY")
-                if not api_key:
-                    raise Exception("BREVO_API_KEY is missing.")
-                url = "https://api.brevo.com/v3/smtp/email"
-                headers = {"accept": "application/json", "api-key": api_key, "content-type": "application/json"}
-                payload = {
-                    "sender": {"name": complaint_name, "email": burner_address},
-                    "to": [{"email": b_info["email"]}],
-                    "replyTo": {"email": burner_address},
-                    "subject": subject_line,
-                    "textContent": email_body
-                }
-                requests.post(url, json=payload, headers=headers, timeout=10)
-
-            try:
-                await asyncio.to_thread(send_brevo_email)
-            except Exception as e:
-                brain = load_brain()
-                if uid_str in brain["active_users"]:
-                    brain["active_users"][uid_str] -= 1
-                    if brain["active_users"][uid_str] <= 0:
-                        del brain["active_users"][uid_str]
-                    save_brain(brain)
-                update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
-                await message.channel.send(f"❌ Dispatch failure: {e}")
+                    await asyncio.to_thread(send_brevo_email)
+                except Exception as e:
+                    brain = load_brain()
+                    if uid_str in brain["active_users"]:
+                        brain["active_users"][uid_str] -= 1
+                        if brain["active_users"][uid_str] <= 0:
+                            del brain["active_users"][uid_str]
+                        save_brain(brain)
+                    update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
+                    await message.channel.send(f"❌ Dispatch failure: {e}")
+                    return
                 return
-            return
 
-    await bot.process_commands(message)
+        await bot.process_commands(message)
+    except Exception as e:
+        print(f"❌ Exception in on_message: {e}")
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
