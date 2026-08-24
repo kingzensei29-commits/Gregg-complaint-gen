@@ -235,7 +235,7 @@ def remove_persistent_pipeline(burner_address):
     pipelines = brain.get("persistent_pipelines", {})
     key = burner_address.lower()
     for p_key, p_data in list(pipelines.items()):
-        if p_key == key or f"{p_data['burner_username']}@{p_data['burner_domain']}".lower() == key:
+        if p_key == key or f"{p_data.get('burner_username')}@{p_data.get('burner_domain')}".lower() == key:
             del pipelines[p_key]
             save_brain(brain)
             break
