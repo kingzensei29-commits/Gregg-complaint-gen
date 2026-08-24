@@ -5,3 +5,4 @@ pillow
 tempmail-python
 flask
 resend
+cryptography
