@@ -403,7 +403,7 @@ def generate_mistral_complaint(brand_key):
         f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
         f"6. DO NOT use emojis, markdown asterisks, or weird symbols. Keep text completely clean and professional.\n"
         f"7. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
-    )
+    )   f"8. Use real branch names and act more human use a humaniser if u cannot."
 
     payload = {
         "model": "mistral-small-latest",
