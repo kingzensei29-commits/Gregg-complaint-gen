@@ -64,7 +64,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter & Secure Redemption is online!"
+    return "🟢 Fully Encrypted Pipeline Bot with Robust ID Lookup is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -187,6 +187,16 @@ def generate_custom_complaint_id(username):
     part2 = ''.join(random.choices("0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ", k=4))
     return f"{clean_name}-{part1}-{part2}"
 
+def find_pipeline_by_id(search_id):
+    """Case-insensitive search helper to prevent ID matching errors."""
+    brain = load_brain()
+    registry = brain.get("burner_registry", {})
+    search_clean = search_id.strip().lower()
+    for k, v in registry.items():
+        if k.lower() == search_clean:
+            return k, v
+    return None, None
+
 def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, custom_id):
     brain = load_brain()
     key = f"{burner_username}@{burner_domain}"
@@ -241,14 +251,16 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
 
 def update_burner_status(custom_id, new_status):
     brain = load_brain()
-    if custom_id in brain["burner_registry"]:
-        brain["burner_registry"][custom_id]["status"] = new_status
+    real_key, _ = find_pipeline_by_id(custom_id)
+    if real_key:
+        brain["burner_registry"][real_key]["status"] = new_status
         save_brain(brain)
 
 def update_pipeline_reply_snippet(custom_id, reply_text):
     brain = load_brain()
-    if custom_id in brain["burner_registry"]:
-        brain["burner_registry"][custom_id]["reply_snippet"] = reply_text
+    real_key, _ = find_pipeline_by_id(custom_id)
+    if real_key:
+        brain["burner_registry"][real_key]["reply_snippet"] = reply_text
         save_brain(brain)
 
 async def notify_user_with_vault_phone(user_id, brand_name, subject, body):
@@ -347,7 +359,7 @@ def generate_mistral_complaint(brand_key):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Advanced Voucher Pipeline & Redemption Active.")
+    print(f"Logged in as {bot.user.name} | Robust Case-Insensitive Pipeline & Redemption Active.")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -391,18 +403,15 @@ async def on_message(message):
         if content_lower.startswith("!pic"):
             parts = content.split(" ", 1)
             if len(parts) < 2:
-                await message.reply("⚠️ Please provide your Generation ID (e.g., `!pic john-1A2B-C3D4`).")
+                await message.reply("⚠️ Please provide your Generation ID (e.g., `!pic shar-1A2B-C3D4`).")
                 return
             
             search_id = parts[1].strip()
-            brain = load_brain()
-            registry = brain.get("burner_registry", {})
+            real_key, pipeline_info = find_pipeline_by_id(search_id)
 
-            if search_id not in registry:
+            if not pipeline_info:
                 await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
                 return
-
-            pipeline_info = registry[search_id]
 
             def create_advanced_status_card():
                 width, height = 900, 600
@@ -420,7 +429,7 @@ async def on_message(message):
 
                 # Header Banner
                 draw.rectangle([(0, 0), (width, 80)], fill="#2F3136")
-                draw.text((30, 25), f"UK Pipeline Status Dashboard [{search_id}]", fill="#00FFCC", font=font_header)
+                draw.text((30, 25), f"UK Pipeline Status Dashboard [{real_key}]", fill="#00FFCC", font=font_header)
 
                 # Status Box
                 status_color = "#FFA500" if "Awaiting" in pipeline_info['status'] else "#00FF66"
@@ -453,7 +462,7 @@ async def on_message(message):
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text = y_text + 18
 
-                path = f"status_{search_id}.png"
+                path = f"status_{real_key}.png"
                 image.save(path)
                 return path
 
@@ -461,7 +470,7 @@ async def on_message(message):
             card_file = discord.File(img_path, filename="pipeline_status.png")
 
             await message.channel.send(
-                f"📊 **Advanced Pipeline Diagnostic for ID:** `{search_id}`\n"
+                f"📊 **Advanced Pipeline Diagnostic for ID:** `{real_key}`\n"
                 f"> **Status:** {pipeline_info['status']}",
                 file=card_file
             )
@@ -471,18 +480,15 @@ async def on_message(message):
         if content_lower.startswith("!redeem"):
             parts = content.split(" ", 1)
             if len(parts) < 2:
-                await message.reply("⚠️ Please provide your Generation ID to redeem (e.g., `!redeem john-1A2B-C3D4`).")
+                await message.reply("⚠️ Please provide your Generation ID to redeem (e.g., `!redeem shar-1A2B-C3D4`).")
                 return
 
             search_id = parts[1].strip()
-            brain = load_brain()
-            registry = brain.get("burner_registry", {})
+            real_key, pipeline_info = find_pipeline_by_id(search_id)
 
-            if search_id not in registry:
+            if not pipeline_info:
                 await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
                 return
-
-            pipeline_info = registry[search_id]
 
             # Security Verification: Ensure author ID matches original creator ID
             if pipeline_info["user_id"] != str(message.author.id):
@@ -498,8 +504,8 @@ async def on_message(message):
                 return
 
             # Mark as redeemed
-            pipeline_info["redeemed"] = True
-            registry[search_id] = pipeline_info
+            brain = load_brain()
+            brain["burner_registry"][real_key]["redeemed"] = True
             save_brain(brain)
 
             # Generate formal Verified Voucher Card Image
@@ -519,7 +525,7 @@ async def on_message(message):
 
                 # Header Banner
                 draw.rectangle([(0, 0), (width, 80)], fill="#1F2421")
-                draw.text((30, 25), f"🎁 Verified Voucher & Compensation Claim [{search_id}]", fill="#00FF99", font=font_header)
+                draw.text((30, 25), f"🎁 Verified Voucher & Compensation Claim [{real_key}]", fill="#00FF99", font=font_header)
 
                 # Metadata
                 draw.text((30, 110), f"Brand: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
@@ -536,7 +542,7 @@ async def on_message(message):
                     draw.text((45, y_text), line, fill="#E2E8F0", font=font_regular)
                     y_text = y_text + 18
 
-                path = f"redeemed_{search_id}.png"
+                path = f"redeemed_{real_key}.png"
                 image.save(path)
                 return path
 
@@ -548,7 +554,7 @@ async def on_message(message):
                 dm_channel = await message.author.create_dm()
                 await dm_channel.send(
                     f"🎉 **Your Voucher has been successfully verified and claimed!**\n"
-                    f"> **Generation ID:** `{search_id}`\n"
+                    f"> **Generation ID:** `{real_key}`\n"
                     f"> **Brand:** `{pipeline_info['brand']}`\n\n"
                     f"Here is your official secure voucher card and text payload:",
                     file=redeem_file
