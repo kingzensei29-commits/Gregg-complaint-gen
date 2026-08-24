@@ -6,23 +6,86 @@ import json
 import re
 import requests
 from io import BytesIO
-from flask import Flask
+from flask import Flask, request, jsonify
 import discord
 from discord.ext import commands
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Flask Web Server ---
+# --- Flask Web Server with Secured Brevo Inbound Webhook ---
 app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Mistral Tagged ID Code-Brain is online!"
+    return "🟢 Secured UK Mistral Pipeline Bot is online!"
+
+@app.route("/brevo-inbound", methods=["POST"])
+def brevo_inbound_webhook():
+    expected_secret = os.getenv("BREVO_WEBHOOK_SECRET")
+    if expected_secret:
+        client_secret = request.headers.get("X-Webhook-Secret", "")
+        if client_secret != expected_secret:
+            return jsonify({"status": "error", "message": "Unauthorized webhook access"}), 403
+
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"status": "error", "message": "No payload received"}), 400
+
+        items = data.get("items", [data])
+        for item in items:
+            recipient_list = item.get("Recipients", [])
+            to_field = item.get("To", [])
+            
+            target_address = ""
+            if recipient_list:
+                target_address = recipient_list[0].lower()
+            elif to_field:
+                target_address = to_field[0].get("Address", "").lower()
+
+            email_body = item.get("ExtractedMarkdownMessage", item.get("RawHtmlBody", item.get("Body", "")))
+            subject = item.get("Subject", "Support Reply")
+            attachments = item.get("Attachments", [])
+
+            pipelines = load_json_file("persistent_pipelines.json", {})
+            matched_pipeline = None
+            
+            for p_key, p_data in pipelines.items():
+                burner_full = f"{p_data['burner_username']}@{p_data['burner_domain']}".lower()
+                if burner_full == target_address or p_data['burner_username'].lower() in target_address:
+                    matched_pipeline = p_data
+                    break
+
+            if matched_pipeline:
+                user_id = int(matched_pipeline["user_id"])
+                brand_name = matched_pipeline["brand_name"]
+                burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
+                
+                code_match = re.search(r'\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}|[A-Z0-9]{8,12})\b', email_body)
+                extracted_code = code_match.group(1) if code_match else f"{brand_name[:4].upper()}-{random.randint(10000,99999)}"
+                val = round(random.uniform(5.00, 30.00), 2)
+                
+                add_user_voucher(user_id, matched_pipeline["username"], brand_name, val, extracted_code)
+                update_burner_status_by_address(burner_address, f"Success! Verified UK Reply Processed (£{val:.2f})")
+                
+                if bot.loop:
+                    asyncio.run_coroutine_threadsafe(
+                        deliver_voucher_dm(user_id, brand_name, subject, extracted_code, val, email_body, attachments),
+                        bot.loop
+                    )
+                
+                remove_persistent_pipeline(burner_address)
+
+        return jsonify({"status": "success", "processed": True}), 200
+    except Exception as e:
+        print(f"Webhook processing error: {e}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 def run_web_server():
     port = int(os.environ.get("PORT", 10000))
     app.run(host="0.0.0.0", port=port)
 
+# UK Locale enforced strictly for names and location contexts
 fake = Faker("en_GB")
 
 intents = discord.Intents.default()
@@ -80,14 +143,8 @@ def load_burner_registry():
 def save_burner_registry(data):
     save_json_file(BURNER_REGISTRY_FILE, data)
 
-def load_persistent_pipelines():
-    return load_json_file(PERSISTENT_PIPELINES_FILE, {})
-
-def save_persistent_pipelines(data):
-    save_json_file(PERSISTENT_PIPELINES_FILE, data)
-
 def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, db_id):
-    pipelines = load_persistent_pipelines()
+    pipelines = load_json_file(PERSISTENT_PIPELINES_FILE, {})
     key = f"{burner_username}@{burner_domain}"
     pipelines[key] = {
         "user_id": str(user_id),
@@ -95,18 +152,17 @@ def register_persistent_pipeline(user_id, username, brand_name, burner_username,
         "brand_name": brand_name,
         "burner_username": burner_username,
         "burner_domain": burner_domain,
-        "db_id": db_id,
-        "elapsed": 0
+        "db_id": db_id
     }
-    save_persistent_pipelines(pipelines)
+    save_json_file(PERSISTENT_PIPELINES_FILE, pipelines)
 
 def remove_persistent_pipeline(burner_address):
-    pipelines = load_persistent_pipelines()
+    pipelines = load_json_file(PERSISTENT_PIPELINES_FILE, {})
     key = burner_address.lower()
     for p_key, p_data in list(pipelines.items()):
         if p_key == key or f"{p_data['burner_username']}@{p_data['burner_domain']}".lower() == key:
             del pipelines[p_key]
-            save_persistent_pipelines(pipelines)
+            save_json_file(PERSISTENT_PIPELINES_FILE, pipelines)
             break
 
 def log_user_usage(user_id, username, brand_name, burner_address, subject, body):
@@ -134,7 +190,7 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body)
         "brand": brand_name,
         "subject": subject,
         "body_snippet": body[:200],
-        "status": "Active Pipeline Waiting for Response"
+        "status": "Active UK Pipeline Awaiting Response"
     }
     save_burner_registry(registry)
     return next_id
@@ -158,41 +214,33 @@ def add_user_voucher(user_id, username, brand_name, value, custom_code):
         "code": custom_code,
         "name": f"{brand_name} Voucher",
         "value": value,
-        "status": "Verified & Ready"
+        "status": "Verified & Secure UK"
     })
     save_economy(data)
 
+async def deliver_voucher_dm(user_id, brand_name, subject, code, value, body, attachments):
+    try:
+        user = await bot.fetch_user(user_id)
+        if user:
+            dm_text = (
+                f"🛡️ **Verified UK Support Reply Secured!**\n"
+                f"Brand: **{brand_name}**\n"
+                f"Subject: *{subject}*\n"
+                f"Voucher Code: `{code}` (Value: **£{value:.2f}**)\n\n"
+                f"> *Snippet:* {body[:300]}..."
+            )
+            await user.send(dm_text)
+    except Exception as e:
+        print(f"Failed to deliver secure DM: {e}")
+
 class DynamicBurnerMailbox:
     def __init__(self, full_name):
-        clean_domains = ["1secmail.org", "1secmail.com", "1secmail.net"]
         clean_name = re.sub(r'[^a-zA-Z]', '', full_name).lower()
         if len(clean_name) < 3:
             clean_name = "customer"
-        self.username = f"{clean_name}{random.randint(10, 999)}"
-        self.domain = random.choice(clean_domains)
+        self.username = f"{clean_name}{random.randint(100, 9999)}"
+        self.domain = os.getenv("BREVO_INBOUND_DOMAIN", "bettercads.free.nf")
         self.address = f"{self.username}@{self.domain}"
-
-    def check_inbox_and_attachments(self):
-        try:
-            headers = {'User-Agent': 'Mozilla/5.0'}
-            url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={self.username}&domain={self.domain}"
-            resp = requests.get(url, headers=headers, timeout=5)
-            if resp.status_code == 200:
-                messages = resp.json()
-                if messages and len(messages) > 0:
-                    msg_id = messages[0]['id']
-                    detail_url = f"https://www.1secmail.com/api/v1/?action=readMessage&login={self.username}&domain={self.domain}&id={msg_id}"
-                    detail_resp = requests.get(detail_url, headers=headers, timeout=5)
-                    if detail_resp.status_code == 200:
-                        data = detail_resp.json()
-                        class ParsedMail:
-                            subject = data.get('subject', 'No Subject')
-                            body = data.get('textBody', data.get('body', ''))
-                            attachments = data.get('attachments', [])
-                        return ParsedMail()
-        except Exception:
-            pass
-        return None
 
 def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
@@ -201,41 +249,36 @@ def generate_mistral_complaint(brand_key):
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I visited your {town} branch and purchased several items, but discovered upon arriving home that they were completely damaged and unusable due to careless handling."
-        email_body = f"Dear Support Team,\n\nMy name is {consistent_name}. I am writing to formally log a serious complaint regarding my recent transaction at your {town} store.\n\n{fallback_issue}\n\nThis is completely unacceptable for a brand of your reputation. I expect a prompt goodwill voucher or full compensation.\n\nRegards,\n{consistent_name}"
-        return email_body, consistent_name, town, f"Unacceptable product condition at {town} branch"
+        fallback_issue = f"I visited your {town} branch and found the items completely defective and unusable upon unpacking."
+        email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing to formally log a serious complaint regarding my recent experience at your {town} branch.\n\n{fallback_issue}\n\nI expect a prompt resolution or a goodwill voucher.\n\nRegards,\n{consistent_name}"
+        return email_body, consistent_name, town, f"Poor service and product failure at {town} branch"
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     
+    # Strictly UK context prompt emphasizing zero mention of receipts
     prompt = (
-        f"You are writing a deeply detailed, highly frustrated formal customer complaint email to consumer relations for the brand '{b_data['name']}'. "
-        f"The incident took place at the physical store or via delivery in {town}. "
+        f"You are writing a detailed, formal customer complaint email targeted at UK consumer standards for the brand '{b_data['name']}' regarding their branch in {town}. "
         f"STRICT DIRECTIVES:\n"
-        f"1. Invent specific, highly plausible product failures (e.g., missing essential components, items arriving completely crushed/spoiled, incorrect sizing/variants delivered, or awful customer service behavior).\n"
-        f"2. Write in a genuinely irate, highly articulate human tone detailing the exact inconvenience caused.\n"
-        f"3. Demand appropriate compensation or a high-value goodwill gift voucher.\n"
-        f"4. ABSOLUTE CONSTRAINT: NEVER mention paper receipts, physical transaction numbers, or having physical proof.\n"
-        f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
-        f"6. On the very first line of your response, write a custom email subject line starting with 'SUBJECT: '."
+        f"1. Invent a specific, logical product failure or appalling staff service issue.\n"
+        f"2. Write in a serious, frustrated British English tone (using UK phrasing) demanding a goodwill gesture or voucher.\n"
+        f"3. ABSOLUTELY NEVER mention receipts, proof of purchase, or transaction slips.\n"
+        f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
+        f"5. The very first line must start with 'SUBJECT: ' followed by a custom subject line."
     )
 
     payload = {
         "model": "mistral-small-latest",
         "messages": [{"role": "user", "content": prompt}],
-        "temperature": 0.95,
-        "max_tokens": 450
+        "temperature": 0.85,
+        "max_tokens": 400
     }
 
     try:
         response = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=10)
         if response.status_code == 200:
-            result_json = response.json()
-            content = result_json["choices"][0]["message"]["content"].strip()
+            content = response.json()["choices"][0]["message"]["content"].strip()
             lines = content.splitlines()
-            subject_line = f"Appalling service and faulty items from your {town} branch"
+            subject_line = f"Appalling experience at your {town} branch"
             body_lines = lines
             if lines and lines[0].lower().startswith("subject:"):
                 subject_line = lines[0].split(":", 1)[1].strip()
@@ -244,44 +287,29 @@ def generate_mistral_complaint(brand_key):
     except Exception:
         pass
 
-    return f"Terrible experience at {town}. Unusable items received, demanding resolution.", consistent_name, town, "Severe complaint regarding recent order"
+    return f"Serious product defect reported at {town}, demanding resolution.", consistent_name, town, "Formal complaint regarding service"
 
 def ask_mistral_chatbot(user_query, author_name, author_id):
     api_key = os.getenv("MISTRAL_API_KEY")
     if not api_key:
         return "Mistral API key is missing."
 
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json"
-    }
-    
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     active_data = load_active_users()
     economy_data = load_economy()
     usage_stats = load_usage_stats()
-    burner_registry = load_burner_registry()
     
     user_uid = str(author_id)
-    user_active_count = active_data.get(user_uid, 0)
-    user_total_gens = usage_stats.get(user_uid, {}).get("total_generations", 0)
-    user_vouchers_count = len(economy_data.get(user_uid, {}).get("vouchers", []))
-    
     system_prompt = (
-        f"You are Mistral, an intelligent code-brain supervisor and companion for this consumer grievance platform.\n"
-        f"REAL-TIME CODE-BRAIN TELEMETRY:\n"
-        f"- Querying User: {author_name} (ID: {author_id})\n"
-        f"- User Total Lifetime Pipelines Launched: {user_total_gens}\n"
-        f"- User Currently Active Pipelines: {user_active_count}\n"
-        f"- User Secured Vouchers: {user_vouchers_count}\n"
-        f"- Total Tracked Pipelines in Database: {len(burner_registry)}"
+        f"You are Mistral, secure code-brain supervisor for this UK grievance pipeline.\n"
+        f"- User: {author_name} (ID: {author_id})\n"
+        f"- Total Pipelines: {usage_stats.get(user_uid, {}).get('total_generations', 0)}\n"
+        f"- Secured Vouchers: {len(economy_data.get(user_uid, {}).get('vouchers', []))}"
     )
 
     payload = {
         "model": "mistral-small-latest",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": user_query}
-        ],
+        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_query}],
         "temperature": 0.7,
         "max_tokens": 250
     }
@@ -293,7 +321,7 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
     except Exception:
         pass
     
-    return "Code-brain telemetry glitch encountered, ask again!"
+    return "Code-brain telemetry glitch encountered!"
 
 def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
     if isinstance(brand_color, int):
@@ -309,7 +337,7 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
         font_body = ImageFont.load_default()
 
     draw.rectangle([(0, 0), (width, 70)], fill=brand_color)
-    draw.text((20, 20), "Official Verified Grievance Dispatched", fill="white", font=font_title)
+    draw.text((20, 20), "Official Verified UK Grievance Dispatched", fill="white", font=font_title)
     content_text = f"From: {sender}\nTo: {recipient}\nSubject: {subject}\n" + "-" * 68 + f"\n\n{body}"
     
     y_text = 85
@@ -321,92 +349,9 @@ def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, o
     image.save(output_path)
     return output_path
 
-def handle_human_verification_check(email_body):
-    triggers = ["verify your identity", "security check", "sms code", "phone verification", "confirm your number", "captcha"]
-    lowered = email_body.lower()
-    for t in triggers:
-        if t in lowered:
-            return True
-    return False
-
-async def run_identity_and_voucher_pipeline(user_id, username, brand_name, burner_obj, db_id, elapsed_time=0):
-    max_wait = 1200
-    elapsed = elapsed_time
-    register_persistent_pipeline(user_id, username, brand_name, burner_obj.username, burner_obj.domain, db_id)
-    
-    try:
-        while elapsed < max_wait:
-            await asyncio.sleep(35)
-            elapsed += 35
-            
-            incoming = await asyncio.to_thread(burner_obj.check_inbox_and_attachments)
-            if incoming:
-                if handle_human_verification_check(incoming.body):
-                    update_burner_status_by_address(burner_obj.address, "Triggered Human/SMS Verification Wall - Bypassing...")
-                    await asyncio.sleep(5) 
-                    continue
-
-                code_match = re.search(r'\b([A-Z0-9]{4,6}-[A-Z0-9]{4,6}-[A-Z0-9]{4,6}|[A-Z0-9]{8,12})\b', incoming.body)
-                
-                if code_match or incoming.attachments:
-                    extracted_code = code_match.group(1) if code_match else f"{brand_name[:4].upper()}-VERIFIED-{random.randint(1000,9999)}"
-                    val = round(random.uniform(5.00, 25.00), 2)
-                    
-                    add_user_voucher(user_id, username, brand_name, val, extracted_code)
-                    update_burner_status_by_address(burner_obj.address, f"Success! Voucher Secured (£{val:.2f})")
-                    
-                    try:
-                        user = await bot.fetch_user(int(user_id))
-                        if user:
-                            dm_text = (
-                                f"🛡️ **Identity Verification & Voucher Secured!**\n"
-                                f"Brand: **{brand_name}**\n"
-                                f"Voucher Code: `{extracted_code}` (Value: **£{val:.2f}**)"
-                            )
-                            
-                            if incoming.attachments:
-                                for att in incoming.attachments:
-                                    att_name = att.get("filename", "voucher_barcode.png")
-                                    att_url = f"https://www.1secmail.com/api/v1/?action=download&login={burner_obj.username}&domain={burner_obj.domain}&id={att.get('id')}"
-                                    img_resp = requests.get(att_url)
-                                    if img_resp.status_code == 200:
-                                        img_file = discord.File(BytesIO(img_resp.content), filename=att_name)
-                                        await user.send(dm_text, file=img_file)
-                                        break
-                            else:
-                                await user.send(dm_text)
-                    except Exception:
-                        pass
-                    break
-    finally:
-        remove_persistent_pipeline(burner_obj.address)
-        active_users = load_active_users()
-        uid_str = str(user_id)
-        if uid_str in active_users and active_users[uid_str] > 0:
-            active_users[uid_str] -= 1
-            if active_users[uid_str] <= 0:
-                del active_users[uid_str]
-            save_active_users(active_users)
-
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Resuming persistent pipelines...")
-    
-    pipelines = load_persistent_pipelines()
-    if pipelines:
-        print(f"🔄 Restoring {len(pipelines)} ongoing pipeline verification loops from persistent storage...")
-        for burner_key, data in list(pipelines.items()):
-            burner_obj = DynamicBurnerMailbox(data["burner_username"])
-            burner_obj.domain = data["burner_domain"]
-            burner_obj.address = f"{burner_obj.username}@{burner_obj.domain}"
-            bot.loop.create_task(run_identity_and_voucher_pipeline(
-                data["user_id"],
-                data["username"],
-                data["brand_name"],
-                burner_obj,
-                data.get("db_id", 1),
-                elapsed_time=data.get("elapsed", 0)
-            ))
+    print(f"Logged in as {bot.user.name} | Secure UK Brevo Webhook Listener Active.")
 
 @bot.event
 async def on_message(message):
@@ -416,7 +361,7 @@ async def on_message(message):
     content = message.content.strip()
     content_lower = content.lower()
     
-    # 1. Handle Generator Command
+    # Generator Command (![brandname] gen)
     if content_lower.startswith("!") and content_lower.endswith(" gen"):
         brand_query = content_lower[1:-4].strip()
         
@@ -427,14 +372,6 @@ async def on_message(message):
             active_users = load_active_users()
             current_active = active_users.get(uid_str, 0)
             
-            if current_active >= 50:
-                try:
-                    await message.delete()
-                except Exception:
-                    pass
-                await ctx.send(f"⏳ {ctx.author.mention}, you have reached your limit of **50 active pipelines**!", delete_after=10)
-                return
-
             try:
                 await message.delete()
             except Exception:
@@ -446,42 +383,43 @@ async def on_message(message):
             b_info = BRANDS[brand_query]
             email_body, complaint_name, town, subject_line = await asyncio.to_thread(generate_mistral_complaint, brand_query)
             
-            # Create burner email matching the generated name
             burner_obj = DynamicBurnerMailbox(complaint_name)
             burner_address = burner_obj.address
 
             db_id = log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body)
+            register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, db_id)
 
             sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
             email_client_layout = (
-                f"🛡️ **{b_info['name']}** (ID: `#{db_id}` | Active: {active_users[uid_str]}/50 slots)\n"
-                f"> **Burner Assigned:** `{burner_address}`\n"
-                f"> **To:** `{b_info['email']}`\n"
-                f"> **Subject:** `{subject_line}`\n"
+                f"🛡️ **{b_info['name']}** UK Pipeline [ID: `#{db_id}`]\n"
+                f"> **Dispatch Address:** `{burner_address}`\n"
+                f"> **Target Support:** `{b_info['email']}`\n"
+                f"> **Subject Line:** `{subject_line}`\n"
                 f"> ----------------------------------------\n"
-                f"> *{email_body[:300]}...*"
+                f"> *{email_body[:280]}...*"
             )
 
             await message.channel.send(email_client_layout, file=sent_file)
 
-            def send_resend_email():
-                api_key = os.getenv("RESEND_API_KEY")
+            def send_brevo_email():
+                api_key = os.getenv("BREVO_API_KEY")
                 if not api_key:
-                    raise Exception("RESEND_API_KEY is missing.")
-                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+                    raise Exception("BREVO_API_KEY is missing.")
+                url = "https://api.brevo.com/v3/smtp/email"
+                headers = {"accept": "application/json", "api-key": api_key, "content-type": "application/json"}
                 payload = {
-                    "from": "Grievance Mailer <onboarding@resend.dev>",
-                    "to": [b_info["email"]],
+                    "sender": {"name": complaint_name, "email": burner_address},
+                    "to": [{"email": b_info["email"]}],
+                    "replyTo": {"email": burner_address},
                     "subject": subject_line,
-                    "text": email_body,
-                    "reply_to": burner_address
+                    "textContent": email_body
                 }
-                requests.post("https://api.resend.com/emails", json=payload, headers=headers, timeout=8)
+                requests.post(url, json=payload, headers=headers, timeout=10)
 
             try:
-                await asyncio.to_thread(send_resend_email)
+                await asyncio.to_thread(send_brevo_email)
             except Exception as e:
                 active_users = load_active_users()
                 if uid_str in active_users:
@@ -492,17 +430,14 @@ async def on_message(message):
                 update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
                 await message.channel.send(f"❌ Dispatch failure: {e}")
                 return
-
-            bot.loop.create_task(run_identity_and_voucher_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj, db_id))
             return
 
-    # 2. Burner Status Command Check by ID or Address
+    # Status Check Command
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
             query_key = parts[1].strip().replace("#", "").lower()
             registry = load_burner_registry()
-            
             matched_info = None
             if query_key in registry:
                 matched_info = registry[query_key]
@@ -513,23 +448,20 @@ async def on_message(message):
                         break
 
             if matched_info:
-                embed = discord.Embed(title=f"📊 Pipeline Status [ID: #{matched_info['db_id']}]", color=0xF39C12)
+                embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: #{matched_info['db_id']}]", color=0xF39C12)
                 embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
                 embed.add_field(name="Owner", value=matched_info["username"], inline=True)
-                embed.add_field(name="Burner Email", value=f"`{matched_info['address']}`", inline=False)
-                embed.add_field(name="Pipeline State", value=matched_info["status"], inline=False)
-                embed.add_field(name="Subject", value=matched_info["subject"], inline=False)
+                embed.add_field(name="Dispatch Address", value=f"`{matched_info['address']}`", inline=False)
+                embed.add_field(name="State", value=matched_info["status"], inline=False)
                 await message.reply(embed=embed)
                 return
             else:
-                await message.reply(f"❌ Could not find pipeline with ID/Address `{query_key}` in the database.")
+                await message.reply(f"❌ Could not locate UK pipeline ID/Address `{query_key}`.")
                 return
 
-    # 3. Code-Brain Chat (Only when specifically pinged/mentioned)
+    # Code-Brain Chat (Only when mentioned)
     if bot.user.mentioned_in(message) and not content.startswith("!"):
-        # Strip the bot's mention formatting so Mistral only sees the actual question
         clean_query = content.replace(f"<@{bot.user.id}>", "").replace(f"<@!{bot.user.id}>", "").strip()
-        
         if clean_query:
             async with message.channel.typing():
                 ai_reply = await asyncio.to_thread(ask_mistral_chatbot, clean_query, message.author.name, message.author.id)
@@ -553,14 +485,9 @@ async def show_voucher_wallet(ctx):
         return
 
     vouchers = data[uid]["vouchers"]
-
-    embed = discord.Embed(
-        title=f"💳 {ctx.author.name}'s Voucher Wallet",
-        color=0x3498DB
-    )
-
+    embed = discord.Embed(title=f"💳 {ctx.author.name}'s Secured UK Vouchers", color=0x3498DB)
     for i, v in enumerate(vouchers, 1):
-        field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: 🟢 **Verified & Ready**"
+        field_value = f"Code: `{v['code']}`\nValue: **£{v['value']:.2f}**\nStatus: 🟢 **Verified & Secure**"
         embed.add_field(name=f"Voucher #{i}: {v['name']}", value=field_value, inline=False)
 
     await ctx.send(embed=embed)
