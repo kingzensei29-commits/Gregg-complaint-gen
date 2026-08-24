@@ -64,7 +64,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter & Advanced Pic Lookup is online!"
+    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter & Secure Redemption is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -92,7 +92,6 @@ def brevo_inbound_webhook():
 
             email_body = item.get("ExtractedMarkdownMessage", item.get("RawHtmlBody", item.get("Body", "")))
             subject = item.get("Subject", "Support Reply")
-            attachments = item.get("Attachments", [])
 
             brain = load_brain()
             pipelines = brain.get("persistent_pipelines", {})
@@ -121,7 +120,7 @@ def brevo_inbound_webhook():
                             bot.loop
                         )
                 elif has_voucher:
-                    update_burner_status(custom_id, "🎁 Voucher/Refund Received!")
+                    update_burner_status(custom_id, "🎁 Voucher/Refund Received! Ready to Redeem")
                     update_pipeline_reply_snippet(custom_id, email_body[:300])
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
@@ -235,7 +234,8 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "subject": subject,
         "body_snippet": body[:200],
         "reply_snippet": "No response yet",
-        "status": "Active UK Pipeline Awaiting Voucher"
+        "status": "Active UK Pipeline Awaiting Voucher",
+        "redeemed": False
     }
     save_brain(brain)
 
@@ -264,15 +264,14 @@ async def notify_user_with_vault_phone(user_id, brand_name, subject, body):
                     f"🛡️ **Security Verification Triggered by {brand_name}!**\n"
                     f"Subject: *{subject}*\n\n"
                     f"> *Support says:* {body[:350]}...\n\n"
-                    f"📱 **Auto-Fetched Vault Phone:** `{vaulted_phone}`\n"
-                    f"*(Use this saved number to complete the verification challenge on their portal).* "
+                    f"📱 **Auto-Fetched Vault Phone:** `{vaulted_phone}`"
                 )
             else:
                 dm_text = (
                     f"🛡️ **Security Verification Triggered by {brand_name}!**\n"
                     f"Subject: *{subject}*\n\n"
                     f"> *Support says:* {body[:350]}...\n\n"
-                    f"⚠️ No phone number found in your vault. Send `!setphone <number>` in chat to save one for future pipelines!"
+                    f"⚠️ No phone number found in your vault. Send `!setphone <number>` in chat to save one!"
                 )
             await user.send(dm_text)
     except Exception as e:
@@ -286,7 +285,7 @@ async def deliver_support_reply_dm(user_id, brand_name, subject, body, is_vouche
                 f"🎁 **Voucher / Refund Secured from {brand_name}!**\n"
                 f"Subject: *{subject}*\n\n"
                 f"> *Support Reply:* {body[:500]}...\n\n"
-                f"*(Pipeline has been automatically completed & closed).* "
+                f"*(Type `!redeem [your_gen_id]` in the server to claim and receive your secure voucher files).* "
             )
             await user.send(dm_text)
     except Exception as e:
@@ -348,7 +347,7 @@ def generate_mistral_complaint(brand_key):
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Advanced Voucher Pipeline Active.")
+    print(f"Logged in as {bot.user.name} | Advanced Voucher Pipeline & Redemption Active.")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -388,7 +387,7 @@ async def on_message(message):
                     await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                     return
 
-        # Advanced Pipeline Pic Lookup Command: !pic [custom_id]
+        # 📊 Advanced Pipeline Pic Lookup Command: !pic [custom_id]
         if content_lower.startswith("!pic"):
             parts = content.split(" ", 1)
             if len(parts) < 2:
@@ -466,6 +465,97 @@ async def on_message(message):
                 f"> **Status:** {pipeline_info['status']}",
                 file=card_file
             )
+            return
+
+        # 🎁 Secure Redemption Command: !redeem [custom_id]
+        if content_lower.startswith("!redeem"):
+            parts = content.split(" ", 1)
+            if len(parts) < 2:
+                await message.reply("⚠️ Please provide your Generation ID to redeem (e.g., `!redeem john-1A2B-C3D4`).")
+                return
+
+            search_id = parts[1].strip()
+            brain = load_brain()
+            registry = brain.get("burner_registry", {})
+
+            if search_id not in registry:
+                await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
+                return
+
+            pipeline_info = registry[search_id]
+
+            # Security Verification: Ensure author ID matches original creator ID
+            if pipeline_info["user_id"] != str(message.author.id):
+                await message.reply("⛔ **Access Denied:** You are not the authorized creator of this pipeline ID.")
+                return
+
+            if "Voucher" not in pipeline_info["status"] and "🎁" not in pipeline_info["status"]:
+                await message.reply("⚠️ This pipeline has not yet received a confirmed voucher or financial remedy from support.")
+                return
+
+            if pipeline_info.get("redeemed", False):
+                await message.reply("⚠️ This voucher has already been successfully redeemed and claimed.")
+                return
+
+            # Mark as redeemed
+            pipeline_info["redeemed"] = True
+            registry[search_id] = pipeline_info
+            save_brain(brain)
+
+            # Generate formal Verified Voucher Card Image
+            def create_redemption_card():
+                width, height = 900, 500
+                image = Image.new("RGB", (width, height), color="#121216")
+                draw = ImageDraw.Draw(image)
+                
+                try:
+                    font_header = ImageFont.truetype("arial.ttf", 22)
+                    font_bold = ImageFont.truetype("arial.ttf", 14)
+                    font_regular = ImageFont.truetype("arial.ttf", 13)
+                except IOError:
+                    font_header = ImageFont.load_default()
+                    font_bold = ImageFont.load_default()
+                    font_regular = ImageFont.load_default()
+
+                # Header Banner
+                draw.rectangle([(0, 0), (width, 80)], fill="#1F2421")
+                draw.text((30, 25), f"🎁 Verified Voucher & Compensation Claim [{search_id}]", fill="#00FF99", font=font_header)
+
+                # Metadata
+                draw.text((30, 110), f"Brand: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
+                draw.text((30, 135), f"Owner Discord ID: {message.author.id} (Verified)", fill="#8E9297", font=font_regular)
+
+                # Voucher Details Box
+                draw.rectangle([(30, 175), (width - 30, 450)], fill="#1B1D23", outline="#2E3136", width=2)
+                draw.text((45, 190), "Secured Support Voucher / Resolution Payload:", fill="#00D26A", font=font_bold)
+                
+                y_text = 225
+                for line in pipeline_info['reply_snippet'].splitlines():
+                    if y_text > 420:
+                        break
+                    draw.text((45, y_text), line, fill="#E2E8F0", font=font_regular)
+                    y_text = y_text + 18
+
+                path = f"redeemed_{search_id}.png"
+                image.save(path)
+                return path
+
+            redeem_img_path = await asyncio.to_thread(create_redemption_card)
+            redeem_file = discord.File(redeem_img_path, filename="verified_voucher.png")
+
+            # DM the user securely
+            try:
+                dm_channel = await message.author.create_dm()
+                await dm_channel.send(
+                    f"🎉 **Your Voucher has been successfully verified and claimed!**\n"
+                    f"> **Generation ID:** `{search_id}`\n"
+                    f"> **Brand:** `{pipeline_info['brand']}`\n\n"
+                    f"Here is your official secure voucher card and text payload:",
+                    file=redeem_file
+                )
+                await message.reply(f"✅ **Identity Verified!** Your voucher has been securely dispatched to your DMs with the full confirmation card.")
+            except Exception as e:
+                await message.reply(f"✅ **Identity Verified!** However, I couldn't send you a DM (please check your privacy settings). Here is your voucher file directly in the channel:", file=redeem_file)
             return
 
         # Matches format: !<brandname> gen
