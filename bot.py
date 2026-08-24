@@ -22,7 +22,6 @@ def get_cipher():
         key = key.encode()
     return Fernet(key)
 
-# For encrypted files (brain.enc)
 def load_encrypted_json(filename, default_val=None):
     if default_val is None:
         default_val = {}
@@ -47,9 +46,8 @@ def save_encrypted_json(filename, data):
         with open(filename, "wb") as f:
             f.write(encrypted_data)
     except Exception as e:
-        print(f"❌ Critical Error saving/encrypting {filename}: {e}")
+        print(f"❌ Critical Error saving/decrypting {filename}: {e}")
 
-# For plain configuration files (brands.json)
 def load_plain_json(filename, default_val=None):
     if default_val is None:
         default_val = {}
@@ -66,7 +64,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter is online!"
+    return "🟢 Fully Encrypted Pipeline Bot with Voucher-Only Filter & Advanced Pic Lookup is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -110,27 +108,30 @@ def brevo_inbound_webhook():
                 user_id = int(matched_pipeline["user_id"])
                 brand_name = matched_pipeline["brand_name"]
                 burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
+                custom_id = matched_pipeline["custom_id"]
                 
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
                 if requires_verification:
-                    update_burner_status_by_address(burner_address, "Awaiting Phone Verification (Vault Auto-Fetch)")
+                    update_burner_status(custom_id, "Awaiting Phone Verification (Vault Auto-Fetch)")
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
                             notify_user_with_vault_phone(user_id, brand_name, subject, email_body),
                             bot.loop
                         )
                 elif has_voucher:
-                    update_burner_status_by_address(burner_address, "Voucher Received - User Notified")
+                    update_burner_status(custom_id, "🎁 Voucher/Refund Received!")
+                    update_pipeline_reply_snippet(custom_id, email_body[:300])
                     if bot.loop:
                         asyncio.run_coroutine_threadsafe(
-                            deliver_support_reply_dm(user_id, brand_name, subject, email_body, attachments, is_voucher=True),
+                            deliver_support_reply_dm(user_id, brand_name, subject, email_body, is_voucher=True),
                             bot.loop
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
-                    update_burner_status_by_address(burner_address, "Support response received (No voucher, skipped DM)")
+                    update_burner_status(custom_id, "Support Response Received (No Voucher yet)")
+                    update_pipeline_reply_snippet(custom_id, email_body[:300])
                     remove_persistent_pipeline(burner_address)
 
         return jsonify({"status": "success", "processed": True}), 200
@@ -151,7 +152,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BRAIN_FILE = "brain.enc"
 BRANDS_FILE = "brands.json"
 
-# Load brands properly as plain JSON
 BRANDS = load_plain_json(BRANDS_FILE, {})
 print(f"✅ Loaded {len(BRANDS)} brands from {BRANDS_FILE}: {list(BRANDS.keys())}")
 
@@ -234,18 +234,22 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "brand": brand_name,
         "subject": subject,
         "body_snippet": body[:200],
-        "status": "Active UK Pipeline Awaiting Response"
+        "reply_snippet": "No response yet",
+        "status": "Active UK Pipeline Awaiting Voucher"
     }
     save_brain(brain)
 
-def update_burner_status_by_address(burner_address, new_status):
+def update_burner_status(custom_id, new_status):
     brain = load_brain()
-    b_key = burner_address.lower()
-    for k, info in brain["burner_registry"].items():
-        if info["address"] == b_key:
-            info["status"] = new_status
-            save_brain(brain)
-            break
+    if custom_id in brain["burner_registry"]:
+        brain["burner_registry"][custom_id]["status"] = new_status
+        save_brain(brain)
+
+def update_pipeline_reply_snippet(custom_id, reply_text):
+    brain = load_brain()
+    if custom_id in brain["burner_registry"]:
+        brain["burner_registry"][custom_id]["reply_snippet"] = reply_text
+        save_brain(brain)
 
 async def notify_user_with_vault_phone(user_id, brand_name, subject, body):
     try:
@@ -274,15 +278,15 @@ async def notify_user_with_vault_phone(user_id, brand_name, subject, body):
     except Exception as e:
         print(f"Failed to send vault notification DM: {e}")
 
-async def deliver_support_reply_dm(user_id, brand_name, subject, body, attachments, is_voucher=False):
+async def deliver_support_reply_dm(user_id, brand_name, subject, body, is_voucher=False):
     try:
         user = await bot.fetch_user(user_id)
         if user and is_voucher:
             dm_text = (
-                f"🎁 **Voucher / Reward Received from {brand_name}!**\n"
+                f"🎁 **Voucher / Refund Secured from {brand_name}!**\n"
                 f"Subject: *{subject}*\n\n"
-                f"> *Snippet:* {body[:500]}...\n\n"
-                f"*(Pipeline has been automatically closed).* "
+                f"> *Support Reply:* {body[:500]}...\n\n"
+                f"*(Pipeline has been automatically completed & closed).* "
             )
             await user.send(dm_text)
     except Exception as e:
@@ -304,18 +308,19 @@ def generate_mistral_complaint(brand_key):
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I visited your {town} branch and experienced issues with service."
-        email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing regarding my recent experience at your {town} branch.\n\n{fallback_issue}\n\nRegards,\n{consistent_name}"
-        return email_body, consistent_name, town, f"Feedback regarding {town} branch"
+        fallback_issue = f"I visited your {town} branch and experienced substandard service and ruined items."
+        email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing regarding my recent experience at your {town} branch.\n\n{fallback_issue}\n\nGiven the severity of this issue and the distress caused, I expect a prompt goodwill voucher or full refund to make amends for this experience.\n\nRegards,\n{consistent_name}"
+        return email_body, consistent_name, town, f"Formal Complaint & Compensation Request - {town}"
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     prompt = (
-        f"You are writing a formal customer feedback email for the brand '{b_data['name']}' regarding their branch in {town}. "
+        f"You are writing a formal customer complaint email for the brand '{b_data['name']}' regarding their branch in {town}. "
         f"STRICT DIRECTIVES:\n"
-        f"1. Describe a realistic customer service or product issue.\n"
-        f"2. Write in a polite, professional British English tone.\n"
-        f"3. Sign off using the exact consumer name: '{consistent_name}'.\n"
-        f"4. The very first line must start with 'SUBJECT: ' followed by a custom subject line."
+        f"1. Describe a realistic, frustrating customer service or product quality issue.\n"
+        f"2. Write in a firm, polite, professional British English tone.\n"
+        f"3. Explicitly demand a goodwill compensation voucher, credit, or full refund as a resolution for the distress caused.\n"
+        f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
+        f"5. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
     )
 
     payload = {
@@ -330,7 +335,7 @@ def generate_mistral_complaint(brand_key):
         if response.status_code == 200:
             content = response.json()["choices"][0]["message"]["content"].strip()
             lines = content.splitlines()
-            subject_line = f"Feedback regarding your {town} branch"
+            subject_line = f"Formal Complaint & Compensation Request - {town}"
             body_lines = lines
             if lines and lines[0].lower().startswith("subject:"):
                 subject_line = lines[0].split(":", 1)[1].strip()
@@ -339,11 +344,11 @@ def generate_mistral_complaint(brand_key):
     except Exception:
         pass
 
-    return f"Service feedback reported at {town}.", consistent_name, town, "Feedback regarding service"
+    return f"Service complaint reported at {town}. Expecting a goodwill voucher.", consistent_name, town, "Formal Complaint & Compensation Request"
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Voucher-Only Pipeline Listener Active.")
+    print(f"Logged in as {bot.user.name} | Advanced Voucher Pipeline Active.")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -382,6 +387,86 @@ async def on_message(message):
                 else:
                     await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                     return
+
+        # Advanced Pipeline Pic Lookup Command: !pic [custom_id]
+        if content_lower.startswith("!pic"):
+            parts = content.split(" ", 1)
+            if len(parts) < 2:
+                await message.reply("⚠️ Please provide your Generation ID (e.g., `!pic john-1A2B-C3D4`).")
+                return
+            
+            search_id = parts[1].strip()
+            brain = load_brain()
+            registry = brain.get("burner_registry", {})
+
+            if search_id not in registry:
+                await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
+                return
+
+            pipeline_info = registry[search_id]
+
+            def create_advanced_status_card():
+                width, height = 900, 600
+                image = Image.new("RGB", (width, height), color="#1E1E24")
+                draw = ImageDraw.Draw(image)
+                
+                try:
+                    font_header = ImageFont.truetype("arial.ttf", 20)
+                    font_bold = ImageFont.truetype("arial.ttf", 14)
+                    font_regular = ImageFont.truetype("arial.ttf", 13)
+                except IOError:
+                    font_header = ImageFont.load_default()
+                    font_bold = ImageFont.load_default()
+                    font_regular = ImageFont.load_default()
+
+                # Header Banner
+                draw.rectangle([(0, 0), (width, 80)], fill="#2F3136")
+                draw.text((30, 25), f"UK Pipeline Status Dashboard [{search_id}]", fill="#00FFCC", font=font_header)
+
+                # Status Box
+                status_color = "#FFA500" if "Awaiting" in pipeline_info['status'] else "#00FF66"
+                draw.rectangle([(30, 100), (width - 30, 160)], fill="#2D2F35", outline="#40444B", width=2)
+                draw.text((50, 110), "Current Pipeline Status:", fill="#8E9297", font=font_bold)
+                draw.text((50, 130), pipeline_info['status'], fill=status_color, font=font_header)
+
+                # Metadata Section
+                draw.text((30, 190), f"Brand Target: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
+                draw.text((30, 215), f"Burner Address: {pipeline_info['address']}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 240), f"Subject: {pipeline_info['subject']}", fill="#B9BBBE", font=font_regular)
+
+                # Initial Complaint Snippet Box
+                draw.rectangle([(30, 280), (width - 30, 420)], fill="#25272C", outline="#36393F", width=1)
+                draw.text((45, 290), "Dispatched Complaint Snippet:", fill="#00B0F4", font=font_bold)
+                y_text = 315
+                for line in pipeline_info['body_snippet'].splitlines():
+                    if y_text > 400:
+                        break
+                    draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
+                    y_text = y_text + 18
+
+                # Support Reply / Voucher Box
+                draw.rectangle([(30, 440), (width - 30, 570)], fill="#25272C", outline="#36393F", width=1)
+                draw.text((45, 450), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in pipeline_info['reply_snippet'] else "#55FF55", font=font_bold)
+                y_text = 475
+                for line in pipeline_info['reply_snippet'].splitlines():
+                    if y_text > 550:
+                        break
+                    draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
+                    y_text = y_text + 18
+
+                path = f"status_{search_id}.png"
+                image.save(path)
+                return path
+
+            img_path = await asyncio.to_thread(create_advanced_status_card)
+            card_file = discord.File(img_path, filename="pipeline_status.png")
+
+            await message.channel.send(
+                f"📊 **Advanced Pipeline Diagnostic for ID:** `{search_id}`\n"
+                f"> **Status:** {pipeline_info['status']}",
+                file=card_file
+            )
+            return
 
         # Matches format: !<brandname> gen
         if content_lower.startswith("!") and content_lower.endswith(" gen"):
@@ -427,7 +512,7 @@ async def on_message(message):
                         font_body = ImageFont.load_default()
 
                     draw.rectangle([(0, 0), (width, 70)], fill=b_info["color"])
-                    draw.text((20, 20), "Official UK Grievance Dispatched", fill="white", font=font_title)
+                    draw.text((20, 20), f"Official UK Grievance Dispatched [ID: {custom_id}]", fill="white", font=font_title)
                     content_text = f"From: {burner_address}\nTo: {b_info['email']}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
                     
                     y_text = 85
@@ -444,7 +529,8 @@ async def on_message(message):
                 sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
                 email_client_layout = (
-                    f"🛡️ **{b_info['name']}** Pipeline [ID: `{custom_id}`]\n"
+                    f"🛡️ **{b_info['name']}** Pipeline Dispatched Successfully!\n"
+                    f"> **Generation ID:** `{custom_id}` *(Use `!pic {custom_id}` to check status)*\n"
                     f"> **Dispatch Address:** `{burner_address}`\n"
                     f"> **Target Support:** `{b_info['email']}`\n"
                     f"> **Subject Line:** `{subject_line}`\n"
@@ -478,7 +564,7 @@ async def on_message(message):
                         if brain["active_users"][uid_str] <= 0:
                             del brain["active_users"][uid_str]
                         save_brain(brain)
-                    update_burner_status_by_address(burner_address, f"Dispatch Failed: {e}")
+                    update_burner_status(custom_id, f"Dispatch Failed: {e}")
                     await message.channel.send(f"❌ Dispatch failure: {e}")
                     return
                 return
