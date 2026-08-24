@@ -188,13 +188,33 @@ def generate_custom_complaint_id(username):
     return f"{clean_name}-{part1}-{part2}"
 
 def find_pipeline_by_id(search_id):
-    """Case-insensitive search helper to prevent ID matching errors."""
+    """Robust case-insensitive search across burner_registry and persistent_pipelines."""
     brain = load_brain()
-    registry = brain.get("burner_registry", {})
     search_clean = search_id.strip().lower()
+    
+    # 1. Search in burner_registry values
+    registry = brain.get("burner_registry", {})
     for k, v in registry.items():
-        if k.lower() == search_clean:
+        if k.lower() == search_clean or v.get("custom_id", "").lower() == search_clean:
             return k, v
+
+    # 2. Search in persistent_pipelines values
+    pipelines = brain.get("persistent_pipelines", {})
+    for k, v in pipelines.items():
+        if v.get("custom_id", "").lower() == search_clean or k.lower() == search_clean:
+            return v.get("custom_id", search_id), {
+                "custom_id": v.get("custom_id", search_id),
+                "address": f"{v.get('burner_username')}@{v.get('burner_domain')}".lower(),
+                "user_id": v.get("user_id"),
+                "username": v.get("username"),
+                "brand": v.get("brand_name"),
+                "subject": "Formal Complaint & Compensation Request",
+                "body_snippet": "Pipeline active and awaiting support response...",
+                "reply_snippet": "No response yet",
+                "status": "Active UK Pipeline Awaiting Voucher",
+                "redeemed": False
+            }
+            
     return None, None
 
 def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, custom_id):
@@ -490,7 +510,6 @@ async def on_message(message):
                 await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
                 return
 
-            # Security Verification: Ensure author ID matches original creator ID
             if pipeline_info["user_id"] != str(message.author.id):
                 await message.reply("⛔ **Access Denied:** You are not the authorized creator of this pipeline ID.")
                 return
@@ -503,12 +522,11 @@ async def on_message(message):
                 await message.reply("⚠️ This voucher has already been successfully redeemed and claimed.")
                 return
 
-            # Mark as redeemed
             brain = load_brain()
-            brain["burner_registry"][real_key]["redeemed"] = True
-            save_brain(brain)
+            if real_key in brain.get("burner_registry", {}):
+                brain["burner_registry"][real_key]["redeemed"] = True
+                save_brain(brain)
 
-            # Generate formal Verified Voucher Card Image
             def create_redemption_card():
                 width, height = 900, 500
                 image = Image.new("RGB", (width, height), color="#121216")
@@ -523,15 +541,12 @@ async def on_message(message):
                     font_bold = ImageFont.load_default()
                     font_regular = ImageFont.load_default()
 
-                # Header Banner
                 draw.rectangle([(0, 0), (width, 80)], fill="#1F2421")
                 draw.text((30, 25), f"🎁 Verified Voucher & Compensation Claim [{real_key}]", fill="#00FF99", font=font_header)
 
-                # Metadata
                 draw.text((30, 110), f"Brand: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
                 draw.text((30, 135), f"Owner Discord ID: {message.author.id} (Verified)", fill="#8E9297", font=font_regular)
 
-                # Voucher Details Box
                 draw.rectangle([(30, 175), (width - 30, 450)], fill="#1B1D23", outline="#2E3136", width=2)
                 draw.text((45, 190), "Secured Support Voucher / Resolution Payload:", fill="#00D26A", font=font_bold)
                 
@@ -549,7 +564,6 @@ async def on_message(message):
             redeem_img_path = await asyncio.to_thread(create_redemption_card)
             redeem_file = discord.File(redeem_img_path, filename="verified_voucher.png")
 
-            # DM the user securely
             try:
                 dm_channel = await message.author.create_dm()
                 await dm_channel.send(
