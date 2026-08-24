@@ -434,7 +434,7 @@ async def on_message(message):
                 return
             return
 
-    # Status Check Command (Case-Insensitive Fix Applied)
+    # Status Check Command (Fully Foolproof Case-Insensitive Lookup)
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
@@ -444,7 +444,7 @@ async def on_message(message):
             matched_info = None
             
             for k, info in registry.items():
-                if k.lower() == query_key or info["address"].lower() == query_key or info["custom_id"].lower() == query_key:
+                if k.lower() == query_key or info.get("custom_id", "").lower() == query_key or info.get("address", "").lower() == query_key:
                     matched_info = info
                     break
 
