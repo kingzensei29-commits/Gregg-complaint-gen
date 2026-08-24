@@ -372,6 +372,7 @@ async def on_message(message):
                     await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                     return
 
+        # Matches format: !<brandname> gen where brandname is a key in BRANDS (brands.json)
         if content_lower.startswith("!") and content_lower.endswith(" gen"):
             brand_query = content_lower[1:-4].strip()
             
