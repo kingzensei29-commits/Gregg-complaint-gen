@@ -4,6 +4,7 @@ import asyncio
 import threading
 import json
 import re
+import traceback
 import requests
 from flask import Flask, request, jsonify
 import discord
@@ -36,6 +37,7 @@ def load_encrypted_json(filename, default_val=None):
             return json.loads(decrypted_data.decode("utf-8"))
         except Exception as e:
             print(f"Error loading/decrypting {filename}: {e}")
+            traceback.print_exc()
     return default_val
 
 def save_encrypted_json(filename, data):
@@ -47,6 +49,7 @@ def save_encrypted_json(filename, data):
             f.write(encrypted_data)
     except Exception as e:
         print(f"❌ Critical Error saving/decrypting {filename}: {e}")
+        traceback.print_exc()
 
 def load_plain_json(filename, default_val=None):
     if default_val is None:
@@ -57,6 +60,7 @@ def load_plain_json(filename, default_val=None):
                 return json.load(f)
         except Exception as e:
             print(f"Error loading plain JSON {filename}: {e}")
+            traceback.print_exc()
     return default_val
 
 # --- Flask Web Server with Secured Brevo Inbound Webhook ---
@@ -64,7 +68,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Fully Encrypted Pipeline Bot with Robust ID Lookup is online!"
+    return "🟢 Fully Encrypted Pipeline Bot with Robust Debugging is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -86,9 +90,9 @@ def brevo_inbound_webhook():
             
             target_address = ""
             if recipient_list:
-                target_address = recipient_list[0].lower()
+                target_address = str(recipient_list[0]).lower().strip()
             elif to_field:
-                target_address = to_field[0].get("Address", "").lower()
+                target_address = str(to_field[0].get("Address", "")).lower().strip()
 
             email_body = item.get("ExtractedMarkdownMessage", item.get("RawHtmlBody", item.get("Body", "")))
             subject = item.get("Subject", "Support Reply")
@@ -98,15 +102,17 @@ def brevo_inbound_webhook():
             matched_pipeline = None
             
             for p_key, p_data in pipelines.items():
-                burner_full = f"{p_data['burner_username']}@{p_data['burner_domain']}".lower()
-                if burner_full == target_address or p_data['burner_username'].lower() in target_address:
+                b_user = p_data.get('burner_username', '').lower()
+                b_domain = p_data.get('burner_domain', '').lower()
+                burner_full = f"{b_user}@{b_domain}"
+                if burner_full == target_address or b_user in target_address:
                     matched_pipeline = p_data
                     break
 
             if matched_pipeline:
                 user_id = int(matched_pipeline["user_id"])
                 brand_name = matched_pipeline["brand_name"]
-                burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
+                burner_address = f"{matched_pipeline.get('burner_username')}@{matched_pipeline.get('burner_domain')}"
                 custom_id = matched_pipeline["custom_id"]
                 
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
@@ -136,6 +142,7 @@ def brevo_inbound_webhook():
         return jsonify({"status": "success", "processed": True}), 200
     except Exception as e:
         print(f"Webhook processing error: {e}")
+        traceback.print_exc()
         return jsonify({"status": "error", "message": str(e)}), 500
 
 def run_web_server():
@@ -151,7 +158,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BRAIN_FILE = "brain.enc"
 BRANDS_FILE = "brands.json"
 
-BRANDS = load_plain_json(BRANDS_FILE, {})
+RAW_BRANDS = load_plain_json(BRANDS_FILE, {})
+# Normalize brand keys to lowercase for foolproof matching
+BRANDS = {k.lower().strip(): v for k, v in RAW_BRANDS.items()}
 print(f"✅ Loaded {len(BRANDS)} brands from {BRANDS_FILE}: {list(BRANDS.keys())}")
 
 def load_brain():
@@ -188,25 +197,30 @@ def generate_custom_complaint_id(username):
     return f"{clean_name}-{part1}-{part2}"
 
 def find_pipeline_by_id(search_id):
-    """Robust case-insensitive search across burner_registry and persistent_pipelines with fallback synchronization."""
+    """Robust case-insensitive search across burner_registry and persistent_pipelines with explicit fallback."""
+    if not search_id:
+        return None, None
     brain = load_brain()
     search_clean = search_id.strip().lower()
     
-    # 1. Search in burner_registry (Primary source of truth for user IDs & custom IDs)
+    # 1. Search in burner_registry
     registry = brain.get("burner_registry", {})
     for k, v in registry.items():
-        if k.lower() == search_clean or v.get("custom_id", "").lower() == search_clean:
+        if k.lower() == search_clean or str(v.get("custom_id", "")).lower() == search_clean:
             return v.get("custom_id", k), v
 
-    # 2. Search in persistent_pipelines and sync/fallback to registry if missing
+    # 2. Search in persistent_pipelines
     pipelines = brain.get("persistent_pipelines", {})
     for k, v in pipelines.items():
-        if v.get("custom_id", "").lower() == search_clean or k.lower() == search_clean:
-            custom_id = v.get("custom_id", search_id)
-            burner_address = f"{v.get('burner_username')}@{v.get('burner_domain')}".lower()
+        custom_id = str(v.get("custom_id", ""))
+        if custom_id.lower() == search_clean or k.lower() == search_clean:
+            resolved_id = custom_id if custom_id else search_id
+            b_user = v.get('burner_username', 'burner')
+            b_domain = v.get('burner_domain', 'local')
+            burner_address = f"{b_user}@{b_domain}".lower()
             
             pipeline_data = {
-                "custom_id": custom_id,
+                "custom_id": resolved_id,
                 "address": burner_address,
                 "user_id": str(v.get("user_id")),
                 "username": v.get("username", "Unknown"),
@@ -220,16 +234,16 @@ def find_pipeline_by_id(search_id):
             
             if "burner_registry" not in brain:
                 brain["burner_registry"] = {}
-            brain["burner_registry"][custom_id] = pipeline_data
+            brain["burner_registry"][resolved_id] = pipeline_data
             save_brain(brain)
             
-            return custom_id, pipeline_data
+            return resolved_id, pipeline_data
             
     return None, None
 
 def register_persistent_pipeline(user_id, username, brand_name, burner_username, burner_domain, custom_id):
     brain = load_brain()
-    key = f"{burner_username}@{burner_domain}"
+    key = f"{burner_username}@{burner_domain}".lower()
     brain["persistent_pipelines"][key] = {
         "user_id": str(user_id),
         "username": username,
@@ -245,7 +259,8 @@ def remove_persistent_pipeline(burner_address):
     pipelines = brain.get("persistent_pipelines", {})
     key = burner_address.lower()
     for p_key, p_data in list(pipelines.items()):
-        if p_key == key or f"{p_data.get('burner_username')}@{p_data.get('burner_domain')}".lower() == key:
+        p_full = f"{p_data.get('burner_username')}@{p_data.get('burner_domain')}".lower()
+        if p_key == key or p_full == key:
             del pipelines[p_key]
             save_brain(brain)
             break
@@ -383,19 +398,20 @@ def generate_mistral_complaint(brand_key):
                 body_lines = lines[1:]
             return "\n".join(body_lines).strip(), consistent_name, town, subject_line
     except Exception:
-        pass
+        traceback.print_exc()
 
     return f"Service complaint reported at {town}. Expecting a goodwill voucher.", consistent_name, town, "Formal Complaint & Compensation Request"
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Robust Case-Insensitive Pipeline & Redemption Active.")
+    print(f"Logged in as {bot.user.name} | Robust Pipeline Handler Active.")
 
 @bot.event
 async def on_command_error(ctx, error):
     if isinstance(error, commands.CommandNotFound):
         return
     print(f"❌ Error in command {ctx.command}: {error}")
+    traceback.print_exception(type(error), error, error.__traceback__)
 
 @bot.event
 async def on_message(message):
@@ -457,36 +473,32 @@ async def on_message(message):
                     font_bold = ImageFont.load_default()
                     font_regular = ImageFont.load_default()
 
-                # Header Banner
                 draw.rectangle([(0, 0), (width, 80)], fill="#2F3136")
                 draw.text((30, 25), f"UK Pipeline Status Dashboard [{real_key}]", fill="#00FFCC", font=font_header)
 
-                # Status Box
-                status_color = "#FFA500" if "Awaiting" in pipeline_info['status'] else "#00FF66"
+                status_color = "#FFA500" if "Awaiting" in pipeline_info.get('status', '') else "#00FF66"
                 draw.rectangle([(30, 100), (width - 30, 160)], fill="#2D2F35", outline="#40444B", width=2)
                 draw.text((50, 110), "Current Pipeline Status:", fill="#8E9297", font=font_bold)
-                draw.text((50, 130), pipeline_info['status'], fill=status_color, font=font_header)
+                draw.text((50, 130), pipeline_info.get('status', 'Unknown'), fill=status_color, font=font_header)
 
-                # Metadata Section
-                draw.text((30, 190), f"Brand Target: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
-                draw.text((30, 215), f"Burner Address: {pipeline_info['address']}", fill="#B9BBBE", font=font_regular)
-                draw.text((30, 240), f"Subject: {pipeline_info['subject']}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 190), f"Brand Target: {pipeline_info.get('brand', 'Unknown')}", fill="#FFFFFF", font=font_bold)
+                draw.text((30, 215), f"Burner Address: {pipeline_info.get('address', 'Unknown')}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 240), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
 
-                # Initial Complaint Snippet Box
                 draw.rectangle([(30, 280), (width - 30, 420)], fill="#25272C", outline="#36393F", width=1)
                 draw.text((45, 290), "Dispatched Complaint Snippet:", fill="#00B0F4", font=font_bold)
                 y_text = 315
-                for line in pipeline_info['body_snippet'].splitlines():
+                for line in pipeline_info.get('body_snippet', '').splitlines():
                     if y_text > 400:
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text = y_text + 18
 
-                # Support Reply / Voucher Box
                 draw.rectangle([(30, 440), (width - 30, 570)], fill="#25272C", outline="#36393F", width=1)
-                draw.text((45, 450), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in pipeline_info['reply_snippet'] else "#55FF55", font=font_bold)
+                reply_snip = pipeline_info.get('reply_snippet', 'No response yet')
+                draw.text((45, 450), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
                 y_text = 475
-                for line in pipeline_info['reply_snippet'].splitlines():
+                for line in reply_snip.splitlines():
                     if y_text > 550:
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
@@ -501,7 +513,7 @@ async def on_message(message):
 
             await message.channel.send(
                 f"📊 **Advanced Pipeline Diagnostic for ID:** `{real_key}`\n"
-                f"> **Status:** {pipeline_info['status']}",
+                f"> **Status:** {pipeline_info.get('status', 'Unknown')}",
                 file=card_file
             )
             return
@@ -520,11 +532,12 @@ async def on_message(message):
                 await message.reply(f"❌ No pipeline found matching ID: `{search_id}`.")
                 return
 
-            if pipeline_info["user_id"] != str(message.author.id):
+            if pipeline_info.get("user_id") != str(message.author.id):
                 await message.reply("⛔ **Access Denied:** You are not the authorized creator of this pipeline ID.")
                 return
 
-            if "Voucher" not in pipeline_info["status"] and "🎁" not in pipeline_info["status"]:
+            status_text = pipeline_info.get("status", "")
+            if "Voucher" not in status_text and "🎁" not in status_text:
                 await message.reply("⚠️ This pipeline has not yet received a confirmed voucher or financial remedy from support.")
                 return
 
@@ -554,14 +567,14 @@ async def on_message(message):
                 draw.rectangle([(0, 0), (width, 80)], fill="#1F2421")
                 draw.text((30, 25), f"🎁 Verified Voucher & Compensation Claim [{real_key}]", fill="#00FF99", font=font_header)
 
-                draw.text((30, 110), f"Brand: {pipeline_info['brand']}", fill="#FFFFFF", font=font_bold)
+                draw.text((30, 110), f"Brand: {pipeline_info.get('brand', 'Unknown')}", fill="#FFFFFF", font=font_bold)
                 draw.text((30, 135), f"Owner Discord ID: {message.author.id} (Verified)", fill="#8E9297", font=font_regular)
 
                 draw.rectangle([(30, 175), (width - 30, 450)], fill="#1B1D23", outline="#2E3136", width=2)
                 draw.text((45, 190), "Secured Support Voucher / Resolution Payload:", fill="#00D26A", font=font_bold)
                 
                 y_text = 225
-                for line in pipeline_info['reply_snippet'].splitlines():
+                for line in pipeline_info.get('reply_snippet', '').splitlines():
                     if y_text > 420:
                         break
                     draw.text((45, y_text), line, fill="#E2E8F0", font=font_regular)
@@ -579,7 +592,7 @@ async def on_message(message):
                 await dm_channel.send(
                     f"🎉 **Your Voucher has been successfully verified and claimed!**\n"
                     f"> **Generation ID:** `{real_key}`\n"
-                    f"> **Brand:** `{pipeline_info['brand']}`\n\n"
+                    f"> **Brand:** `{pipeline_info.get('brand', 'Unknown')}`\n\n"
                     f"Here is your official secure voucher card and text payload:",
                     file=redeem_file
                 )
@@ -588,7 +601,7 @@ async def on_message(message):
                 await message.reply(f"✅ **Identity Verified!** However, I couldn't send you a DM (please check your privacy settings). Here is your voucher file directly in the channel:", file=redeem_file)
             return
 
-        # Matches format: !<brandname> gen
+        # Matches format: !<brandname> gen (e.g. !mcdonalds gen)
         if content_lower.startswith("!") and content_lower.endswith(" gen"):
             brand_query = content_lower[1:-4].strip()
             
@@ -631,9 +644,9 @@ async def on_message(message):
                         font_title = ImageFont.load_default()
                         font_body = ImageFont.load_default()
 
-                    draw.rectangle([(0, 0), (width, 70)], fill=b_info["color"])
+                    draw.rectangle([(0, 0), (width, 70)], fill=b_info.get("color", "#333333"))
                     draw.text((20, 20), f"Official UK Grievance Dispatched [ID: {custom_id}]", fill="white", font=font_title)
-                    content_text = f"From: {burner_address}\nTo: {b_info['email']}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
+                    content_text = f"From: {burner_address}\nTo: {b_info.get('email', '')}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
                     
                     y_text = 85
                     for line in content_text.splitlines():
@@ -652,7 +665,7 @@ async def on_message(message):
                     f"🛡️ **{b_info['name']}** Pipeline Dispatched Successfully!\n"
                     f"> **Generation ID:** `{custom_id}` *(Use `!pic {custom_id}` to check status)*\n"
                     f"> **Dispatch Address:** `{burner_address}`\n"
-                    f"> **Target Support:** `{b_info['email']}`\n"
+                    f"> **Target Support:** `{b_info.get('email', '')}`\n"
                     f"> **Subject Line:** `{subject_line}`\n"
                     f"> ----------------------------------------\n"
                     f"> *{email_body[:280]}...*"
@@ -686,12 +699,14 @@ async def on_message(message):
                         save_brain(brain)
                     update_burner_status(custom_id, f"Dispatch Failed: {e}")
                     await message.channel.send(f"❌ Dispatch failure: {e}")
+                    traceback.print_exc()
                     return
                 return
 
         await bot.process_commands(message)
     except Exception as e:
         print(f"❌ Exception in on_message: {e}")
+        traceback.print_exc()
 
 if __name__ == "__main__":
     TOKEN = os.getenv("DISCORD_TOKEN")
