@@ -128,6 +128,7 @@ def brevo_inbound_webhook():
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
+                # Dynamic 2026 UTC timestamp
                 current_timestamp = datetime.utcnow().strftime("%d %b %Y, %H:%M UTC")
 
                 if requires_verification:
@@ -373,7 +374,7 @@ class DynamicBurnerMailbox:
 def clean_text_for_brands(text):
     if not text:
         return ""
-    # Strip markdown emphasis symbols and non-ASCII artifacts cleanly
+    # Strip markdown symbols and formatting artifacts cleanly
     cleaned = text.replace("*", "").replace("#", "")
     cleaned = cleaned.encode("ascii", "ignore").decode("ascii")
     return cleaned.strip()
@@ -382,19 +383,21 @@ def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
     consistent_name = fake.name()
+    current_date_str = datetime.utcnow().strftime("%A, %d %B %Y")
     api_key = os.getenv("MISTRAL_API_KEY")
     
     if not api_key:
-        fallback_issue = f"I visited your {town} branch and experienced substandard service and ruined items."
-        email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing regarding my recent experience at your {town} branch.\n\n{fallback_issue}\n\nGiven the severity of this issue and the distress caused, I expect a prompt goodwill voucher or full refund to make amends for this experience.\n\nRegards,\n{consistent_name}"
+        fallback_issue = f"I visited your {town} branch on {current_date_str} and experienced substandard service and ruined items."
+        email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing regarding my recent experience at your {town} branch on {current_date_str}.\n\n{fallback_issue}\n\nGiven the severity of this issue and the distress caused, I expect a prompt goodwill voucher or full refund to make amends for this experience.\n\nRegards,\n{consistent_name}"
         return clean_text_for_brands(email_body), consistent_name, town, f"Formal Complaint & Compensation Request - {town}"
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     prompt = (
         f"You are writing a formal customer complaint email for the brand '{b_data['name']}' regarding their branch in {town}. "
+        f"The current date is {current_date_str}. "
         f"STRICT DIRECTIVES:\n"
-        f"1. Describe a realistic, frustrating customer service or product quality issue directly without placeholders.\n"
-        f"2. DO NOT use brackets like [insert date] or [insert item]. Fill in realistic details directly (e.g., last Tuesday, a cold meal/damaged item).\n"
+        f"1. Describe a realistic, frustrating customer service or product quality issue that occurred recently (around {current_date_str}).\n"
+        f"2. DO NOT use template brackets like [insert date] or [insert item]. Fill in realistic details directly (e.g., last evening, a cold meal/damaged item).\n"
         f"3. Write in a firm, polite, professional British English tone.\n"
         f"4. Explicitly demand a goodwill compensation voucher, credit, or full refund as a resolution for the distress caused.\n"
         f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
@@ -424,12 +427,12 @@ def generate_mistral_complaint(brand_key):
     except Exception:
         traceback.print_exc()
 
-    fallback = f"Service complaint reported at {town}. Expecting a goodwill voucher."
+    fallback = f"Service complaint reported at {town} on {current_date_str}. Expecting a goodwill voucher."
     return fallback, consistent_name, town, "Formal Complaint & Compensation Request"
 
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Robust Pipeline Handler Active.")
+    print(f"Logged in as {bot.user.name} | Robust Pipeline Handler Active (2026 Engine).")
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -484,7 +487,7 @@ async def on_message(message):
                 return
 
             def create_advanced_status_card():
-                width, height = 900, 800  # Increased canvas height to prevent truncation
+                width, height = 900, 800
                 image = Image.new("RGB", (width, height), color="#1E1E24")
                 draw = ImageDraw.Draw(image)
                 
@@ -510,7 +513,7 @@ async def on_message(message):
                 draw.text((30, 230), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
                 draw.text((30, 255), f"Dispatched Time: {pipeline_info.get('timestamp', 'Unknown')}", fill="#00B0F4", font=font_regular)
 
-                # Expanded body snippet block with larger height boundary
+                # Expanded body snippet block with clean boundary
                 draw.rectangle([(30, 285), (width - 30, 535)], fill="#25272C", outline="#36393F", width=1)
                 draw.text((45, 295), "Dispatched Complaint Context / Message Body:", fill="#00B0F4", font=font_bold)
                 
