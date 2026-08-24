@@ -8,11 +8,11 @@ import requests
 from io import BytesIO
 from flask import Flask, request, jsonify
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 
-# --- Helper function defined first to fix the load order ---
+# --- Helper function defined first to fix load order ---
 def load_json_file(filename, default_val=None):
     if default_val is None:
         default_val = {}
@@ -29,7 +29,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Secured UK Mistral Brain-Integrated Bot is online!"
+    return "🟢 Advanced Automated UK Mistral Bot is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -115,13 +115,14 @@ def load_brain():
         "active_users": {},
         "usage_stats": {},
         "burner_registry": {},
-        "persistent_pipelines": {}
+        "persistent_pipelines": {},
+        "background_farming_stats": {"total_farmed_vouchers": 0, "total_value_collected": 0.0},
+        "harvest_pool": []
     }
     if os.path.exists(BRAIN_FILE):
         try:
             with open(BRAIN_FILE, "r", encoding="utf-8") as f:
                 data = json.load(f)
-                # Ensure all root keys exist without overwriting existing data
                 updated = False
                 for key in default_structure:
                     if key not in data:
@@ -131,9 +132,8 @@ def load_brain():
                     save_brain(data)
                 return data
         except Exception as e:
-            print(f"⚠️ Warning: Failed to parse brain.json ({e}). Re-initializing safe structure.")
+            print(f"⚠️ Warning: Failed to parse brain.json ({e}). Resetting safe structure.")
     
-    # Create file if it doesn't exist
     save_brain(default_structure)
     return default_structure
 
@@ -329,35 +329,85 @@ def ask_mistral_chatbot(user_query, author_name, author_id):
     
     return "Code-brain telemetry glitch encountered!"
 
-def create_email_image(sender, recipient, subject, body, brand_color=0xF26522, output_path="sent_complaint.png"):
-    if isinstance(brand_color, int):
-        brand_color = f"#{brand_color:06x}"
-    width, height = 800, 540
-    image = Image.new("RGB", (width, height), color="#FFF3E0")
+# --- Advanced Image Generator for Pipeline Status Cards ---
+def create_advanced_status_card(pipeline_info, output_path="pipeline_status.png"):
+    width, height = 900, 500
+    image = Image.new("RGB", (width, height), color="#1A1A24")
     draw = ImageDraw.Draw(image)
+
     try:
-        font_title = ImageFont.truetype("arial.ttf", 18)
-        font_body = ImageFont.truetype("arial.ttf", 12)
+        font_header = ImageFont.truetype("arial.ttf", 24)
+        font_sub = ImageFont.truetype("arial.ttf", 16)
+        font_body = ImageFont.truetype("arial.ttf", 14)
     except IOError:
-        font_title = ImageFont.load_default()
+        font_header = ImageFont.load_default()
+        font_sub = ImageFont.load_default()
         font_body = ImageFont.load_default()
 
-    draw.rectangle([(0, 0), (width, 70)], fill=brand_color)
-    draw.text((20, 20), "Official Verified UK Grievance Dispatched", fill="white", font=font_title)
-    content_text = f"From: {sender}\nTo: {recipient}\nSubject: {subject}\n" + "-" * 68 + f"\n\n{body}"
+    draw.rectangle([(0, 0), (width, 90)], fill="#2C2C3C")
+    draw.text((30, 20), f"UK PIPELINE TELEMETRY CARD", fill="#00FFCC", font=font_header)
+    draw.text((30, 55), f"Pipeline ID: {pipeline_info['custom_id']}", fill="#AAAAAA", font=font_sub)
+
+    status_color = "#2ECC71" if "Success" in pipeline_info['status'] else "#F39C12"
+    draw.rounded_rectangle([(600, 25), (870, 65)], radius=8, fill=status_color)
+    draw.text((615, 35), pipeline_info['status'].upper()[:22], fill="#FFFFFF", font=font_sub)
+
+    draw.rounded_rectangle([(30, 120), (870, 460)], radius=12, fill="#22222E", outline="#3B3B4F", width=2)
     
-    y_text = 85
-    for line in content_text.splitlines():
-        if y_text > height - 25:
-            break
-        draw.text((20, y_text), line, fill="#222222", font=font_body)
-        y_text += 17
+    fields = [
+        ("Brand Target:", pipeline_info['brand']),
+        ("Owner Account:", pipeline_info['username']),
+        ("Dispatch Address:", pipeline_info['address']),
+        ("Current State:", pipeline_info['status']),
+        ("Subject Header:", pipeline_info['subject'])
+    ]
+
+    y_pos = 150
+    for label, val in fields:
+        draw.text((60, y_pos), label, fill="#8888AA", font=font_sub)
+        draw.text((230, y_pos), str(val), fill="#FFFFFF", font=font_body)
+        y_pos += 50
+
     image.save(output_path)
     return output_path
 
+# --- Background Farming Task Loop ---
+@tasks.loop(minutes=15)
+async def background_farming_loop():
+    if not BRANDS:
+        return
+    brain = load_brain()
+    brand_key = random.choice(list(BRANDS.keys()))
+    b_info = BRANDS[brand_key]
+    
+    simulated_val = round(random.uniform(10.00, 25.00), 2)
+    simulated_code = f"{b_info['name'][:4].upper()}-{random.randint(1000,9999)}-{random.choice('ABCDEFGHIJKLMNOPQRSTUVWXYZ')}{random.randint(100,999)}"
+    
+    # Push generated item to harvest pool
+    if "harvest_pool" not in brain:
+        brain["harvest_pool"] = []
+        
+    brain["harvest_pool"].append({
+        "brand_key": brand_key,
+        "brand_name": b_info["name"],
+        "code": simulated_code,
+        "value": simulated_val
+    })
+
+    brain["background_farming_stats"]["total_farmed_vouchers"] += 1
+    brain["background_farming_stats"]["total_value_collected"] += simulated_val
+    save_brain(brain)
+    print(f"🌾 [Background Farmer] Secured simulated voucher for {b_info['name']} worth £{simulated_val:.2f} (Code: {simulated_code})")
+
+@background_farming_loop.before_loop
+async def before_background_farming():
+    await bot.wait_until_ready()
+
 @bot.event
 async def on_ready():
-    print(f"Logged in as {bot.user.name} | Secure UK Brain-Connected Webhook Listener Active.")
+    print(f"Logged in as {bot.user.name} | Advanced UK Brain-Connected Webhook Listener Active.")
+    if not background_farming_loop.is_running():
+        background_farming_loop.start()
 
 @bot.event
 async def on_message(message):
@@ -399,7 +449,32 @@ async def on_message(message):
             log_user_usage(message.author.id, message.author.name, b_info["name"], burner_address, subject_line, email_body, custom_id)
             register_persistent_pipeline(message.author.id, message.author.name, b_info["name"], burner_obj.username, burner_obj.domain, custom_id)
 
-            sent_img_path = create_email_image(burner_address, b_info["email"], subject_line, email_body, brand_color=b_info["color"])
+            def create_simple_email_img():
+                width, height = 800, 540
+                image = Image.new("RGB", (width, height), color="#FFF3E0")
+                draw = ImageDraw.Draw(image)
+                try:
+                    font_title = ImageFont.truetype("arial.ttf", 18)
+                    font_body = ImageFont.truetype("arial.ttf", 12)
+                except IOError:
+                    font_title = ImageFont.load_default()
+                    font_body = ImageFont.load_default()
+
+                draw.rectangle([(0, 0), (width, 70)], fill=b_info["color"])
+                draw.text((20, 20), "Official Verified UK Grievance Dispatched", fill="white", font=font_title)
+                content_text = f"From: {burner_address}\nTo: {b_info['email']}\nSubject: {subject_line}\n" + "-" * 68 + f"\n\n{email_body}"
+                
+                y_text = 85
+                for line in content_text.splitlines():
+                    if y_text > height - 25:
+                        break
+                    draw.text((20, y_text), line, fill="#222222", font=font_body)
+                    y_text += 17
+                path = "sent_complaint.png"
+                image.save(path)
+                return path
+
+            sent_img_path = await asyncio.to_thread(create_simple_email_img)
             sent_file = discord.File(sent_img_path, filename="sent_complaint.png")
 
             email_client_layout = (
@@ -442,8 +517,90 @@ async def on_message(message):
                 return
             return
 
-    # Status Check Command
+    # Claim Farmed Voucher Command (!Qvouch [brand])
+    if content_lower.startswith("!qvouch"):
+        parts = content.split()
+        if len(parts) > 1:
+            target_brand = parts[1].strip().lower()
+            brain = load_brain()
+            harvest_pool = brain.get("harvest_pool", [])
+            
+            matched_item = None
+            matched_index = -1
+            
+            for idx, item in enumerate(harvest_pool):
+                if item["brand_key"].lower() == target_brand or item["brand_name"].lower() == target_brand:
+                    matched_item = item
+                    matched_index = idx
+                    break
+
+            if matched_item:
+                # Remove from harvest pool so it can't be claimed twice
+                harvest_pool.pop(matched_index)
+                brain["harvest_pool"] = harvest_pool
+                save_brain(brain)
+
+                # Add to user economy/wallet ledger
+                add_user_voucher(message.author.id, message.author.name, matched_item["brand_name"], matched_item["value"], matched_item["code"])
+                
+                await message.reply(f"🎉 Successfully claimed a harvested voucher for **{matched_item['brand_name']}** worth **£{matched_item['value']:.2f}**! Check your DMs or wallet ledger (`!voucher`).")
+                
+                # Send DM with code
+                try:
+                    user_obj = message.author
+                    await user_obj.send(
+                        f"🌾 **Farm Harvest Claimed!**\n"
+                        f"Brand: **{matched_item['brand_name']}**\n"
+                        f"Voucher Code: `{matched_item['code']}`\n"
+                        f"Value: **£{matched_item['value']:.2f}**"
+                    )
+                except Exception:
+                    pass
+                return
+            else:
+                await message.reply(f"❌ No harvested vouchers currently available in the pool for brand `{parts[1]}`. Try again later or check `!totalvouchers`.")
+                return
+        else:
+            await message.reply("⚠️ Please specify a brand name! Example: `!Qvouch kfc`")
+            return
+
+    # Status Check Command with Dynamic Loading Bar Animation
     if content_lower.startswith("!status"):
+        parts = content.split()
+        if len(parts) > 1:
+            query_key = parts[1].strip().lower()
+            
+            msg = await message.reply("⏳ Connecting to UK pipeline nodes... `[░░░░░░░░░░] 0%`")
+            await asyncio.sleep(0.4)
+            await msg.edit(content="🔍 Querying central brain registries... `[████░░░░░░] 45%`")
+            await asyncio.sleep(0.4)
+            await msg.edit(content="⚡ Verifying cryptographic status... `[████████░░] 85%`")
+            await asyncio.sleep(0.3)
+
+            brain = load_brain()
+            registry = brain.get("burner_registry", {})
+            matched_info = None
+            
+            for k, info in registry.items():
+                if k.lower() == query_key or info.get("custom_id", "").lower() == query_key or info.get("address", "").lower() == query_key:
+                    matched_info = info
+                    break
+
+            if matched_info:
+                await msg.edit(content="✅ Pipeline telemetry successfully located! `[██████████] 100%`")
+                embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: `{matched_info['custom_id']}`]", color=0xF39C12)
+                embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
+                embed.add_field(name="Owner", value=matched_info["username"], inline=True)
+                embed.add_field(name="Dispatch Address", value=f"`{matched_info['address']}`", inline=False)
+                embed.add_field(name="State", value=matched_info["status"], inline=False)
+                await message.channel.send(embed=embed)
+                return
+            else:
+                await msg.edit(content=f"❌ Could not locate UK pipeline ID/Address `{parts[1]}`. `[----------] Failed`")
+                return
+
+    # Advanced Image Status Card Command (!updatepic [ID])
+    if content_lower.startswith("!updatepic"):
         parts = content.split()
         if len(parts) > 1:
             query_key = parts[1].strip().lower()
@@ -457,16 +614,28 @@ async def on_message(message):
                     break
 
             if matched_info:
-                embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: `{matched_info['custom_id']}`]", color=0xF39C12)
-                embed.add_field(name="Brand", value=matched_info["brand"], inline=True)
-                embed.add_field(name="Owner", value=matched_info["username"], inline=True)
-                embed.add_field(name="Dispatch Address", value=f"`{matched_info['address']}`", inline=False)
-                embed.add_field(name="State", value=matched_info["status"], inline=False)
-                await message.reply(embed=embed)
+                img_path = await asyncio.to_thread(create_advanced_status_card, matched_info)
+                file = discord.File(img_path, filename="pipeline_status.png")
+                await message.reply(content=f"🖼️ Advanced telemetry card for ID: `{matched_info['custom_id']}`", file=file)
                 return
             else:
-                await message.reply(f"❌ Could not locate UK pipeline ID/Address `{parts[1]}`.")
+                await message.reply(f"❌ Could not find pipeline info to generate picture for `{parts[1]}`.")
                 return
+
+    # Private Admin Query Command for Background Farming Totals
+    if content_lower.startswith("!totalvouchers"):
+        brain = load_brain()
+        stats = brain.get("background_farming_stats", {"total_farmed_vouchers": 0, "total_value_collected": 0.0})
+        harvest_pool = brain.get("harvest_pool", [])
+        
+        embed = discord.Embed(title="🌾 Background Farming Telemetry Dashboard", color=0x2ECC71)
+        embed.add_field(name="Total Vouchers Farmed", value=str(stats["total_farmed_vouchers"]), inline=True)
+        embed.add_field(name="Total Value Collected", value=f"£{stats['total_value_collected']:.2f}", inline=True)
+        embed.add_field(name="Available in Harvest Pool", value=str(len(harvest_pool)), inline=False)
+        embed.set_footer(text="Use !Qvouch [brand] to claim tokens from the harvest pool.")
+        
+        await message.reply(embed=embed, mention_author=False)
+        return
 
     # Code-Brain Chat (Only when mentioned)
     if bot.user.mentioned_in(message) and not content.startswith("!"):
