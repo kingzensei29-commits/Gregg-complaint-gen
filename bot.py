@@ -98,7 +98,10 @@ def brevo_inbound_webhook():
                 brand_name = matched_pipeline["brand_name"]
                 burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
                 
+                # Check for phone/security verification triggers first
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
+                
+                # Check if the support reply includes a voucher, gift card, credit, or compensation
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
                 if requires_verification:
@@ -117,6 +120,7 @@ def brevo_inbound_webhook():
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
+                    # Regular support response without a voucher — silently close pipeline without DMing user
                     update_burner_status_by_address(burner_address, "Support response received (No voucher, skipped DM)")
                     remove_persistent_pipeline(burner_address)
 
@@ -338,32 +342,6 @@ async def on_message(message):
     content = message.content.strip()
     content_lower = content.lower()
 
-    # --- PING / MISTRAL CHAT INTEGRATION ---
-    if bot.user in message.mentions:
-        api_key = os.getenv("MISTRAL_API_KEY")
-        if api_key:
-            clean_prompt = message.clean_content.replace(f"@{bot.user.name}", "").strip()
-            if clean_prompt:
-                headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-                payload = {
-                    "model": "mistral-small-latest",
-                    "messages": [{"role": "user", "content": clean_prompt}],
-                    "temperature": 0.7,
-                    "max_tokens": 300
-                }
-                try:
-                    res = requests.post("https://api.mistral.ai/v1/chat/completions", json=payload, headers=headers, timeout=10)
-                    if res.status_code == 200:
-                        reply_text = res.json()["choices"][0]["message"]["content"].strip()
-                        await message.reply(reply_text)
-                        return
-                except Exception as e:
-                    print(f"Mistral chat error: {e}")
-        
-        await message.reply("Hey there! Make sure `MISTRAL_API_KEY` is configured if you want me to talk back.")
-        return
-
-    # --- VAULT PHONE COMMAND ---
     if content_lower.startswith("!setphone"):
         parts = content.split(" ", 1)
         if len(parts) > 1:
@@ -387,9 +365,8 @@ async def on_message(message):
                 await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                 return
 
-    # --- RESTORED ORIGINAL BRAND GEN LOGIC ---
-    if content_lower.startswith("!"):
-        brand_query = content_lower[1:].strip()
+    if content_lower.startswith("!") and content_lower.endswith(" gen"):
+        brand_query = content_lower[1:-4].strip()
         
         if brand_query in BRANDS:
             ctx = await bot.get_context(message)
