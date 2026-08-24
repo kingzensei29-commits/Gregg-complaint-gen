@@ -434,22 +434,19 @@ async def on_message(message):
                 return
             return
 
-    # Status Check Command
+    # Status Check Command (Case-Insensitive Fix Applied)
     if content_lower.startswith("!status"):
         parts = content.split()
         if len(parts) > 1:
-            query_key = parts[1].strip()
+            query_key = parts[1].strip().lower()
             brain = load_brain()
             registry = brain.get("burner_registry", {})
             matched_info = None
             
-            if query_key in registry:
-                matched_info = registry[query_key]
-            else:
-                for k, info in registry.items():
-                    if info["address"].lower() == query_key.lower() or info["custom_id"].lower() == query_key.lower():
-                        matched_info = info
-                        break
+            for k, info in registry.items():
+                if k.lower() == query_key or info["address"].lower() == query_key or info["custom_id"].lower() == query_key:
+                    matched_info = info
+                    break
 
             if matched_info:
                 embed = discord.Embed(title=f"📊 UK Pipeline Status [ID: `{matched_info['custom_id']}`]", color=0xF39C12)
@@ -460,7 +457,7 @@ async def on_message(message):
                 await message.reply(embed=embed)
                 return
             else:
-                await message.reply(f"❌ Could not locate UK pipeline ID/Address `{query_key}`.")
+                await message.reply(f"❌ Could not locate UK pipeline ID/Address `{parts[1]}`.")
                 return
 
     # Code-Brain Chat (Only when mentioned)
