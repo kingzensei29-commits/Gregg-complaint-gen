@@ -1,4 +1,4 @@
- import os
+import os
 import random
 import asyncio
 import threading
@@ -472,4 +472,4 @@ if __name__ == "__main__":
         server_thread = threading.Thread(target=run_web_server)
         server_thread.daemon = True
         server_thread.start()
-        bot.run(TOKEN) 
+        bot.run(TOKEN)
