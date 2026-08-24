@@ -15,20 +15,20 @@ from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 from cryptography.fernet import Fernet
 
-# --- Encryption Core Setup (Hardened against malformed keys) ---
+# --- Encryption Core Setup (Persistent & Non-Volatile Fallback) ---
 def get_cipher():
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
-        key = Fernet.generate_key()
-        print(f"⚠️ Warning: ENCRYPTION_KEY not found in environment. Generated temporary key: {key.decode()}")
+        # Use a consistent fallback seed so it never changes unpredictably across restarts
+        fallback_seed = "stable_pipeline_bot_fallback_encryption_seed_2026"
+        digest = hashlib.sha256(fallback_seed.encode()).digest()
+        key = base64.urlsafe_b64encode(digest)
     else:
         try:
             if isinstance(key, str):
                 key = key.encode()
-            # Test if it's already a valid fernet key
             Fernet(key)
         except Exception:
-            # Safely derive a valid 32-byte url-safe base64 key from whatever string was provided
             digest = hashlib.sha256(key).digest()
             key = base64.urlsafe_b64encode(digest)
     return Fernet(key)
@@ -78,7 +78,7 @@ app = Flask(__name__)
 
 @app.route("/")
 def health_check():
-    return "🟢 Fully Encrypted Pipeline Bot with Robust Debugging is online!"
+    return "🟢 Fully Encrypted Pipeline Bot is online!"
 
 @app.route("/brevo-inbound", methods=["POST"])
 def brevo_inbound_webhook():
@@ -293,7 +293,7 @@ def log_user_usage(user_id, username, brand_name, burner_address, subject, body,
         "username": username,
         "brand": brand_name,
         "subject": subject,
-        "body_snippet": body[:200],
+        "body_snippet": body[:500],  # Expanded context storage
         "reply_snippet": "No response yet",
         "status": "Active UK Pipeline Awaiting Voucher",
         "redeemed": False
@@ -363,6 +363,14 @@ class DynamicBurnerMailbox:
         self.domain = os.getenv("BREVO_INBOUND_DOMAIN", "bettercads.free.nf")
         self.address = f"{self.username}@{self.domain}"
 
+def clean_text_for_brands(text):
+    """Sanitizes text to strip out weird weird characters/emojis before sending to brands."""
+    if not text:
+        return ""
+    # Remove markdown code blocks if generated, and sanitize to clean ASCII/UTF-8 readable text
+    cleaned = text.encode("ascii", "ignore").decode("ascii")
+    return cleaned.strip()
+
 def generate_mistral_complaint(brand_key):
     b_data = BRANDS[brand_key]
     town = random.choice(b_data["towns"])
@@ -372,7 +380,7 @@ def generate_mistral_complaint(brand_key):
     if not api_key:
         fallback_issue = f"I visited your {town} branch and experienced substandard service and ruined items."
         email_body = f"Dear Customer Support Team,\n\nMy name is {consistent_name}. I am writing regarding my recent experience at your {town} branch.\n\n{fallback_issue}\n\nGiven the severity of this issue and the distress caused, I expect a prompt goodwill voucher or full refund to make amends for this experience.\n\nRegards,\n{consistent_name}"
-        return email_body, consistent_name, town, f"Formal Complaint & Compensation Request - {town}"
+        return clean_text_for_brands(email_body), consistent_name, town, f"Formal Complaint & Compensation Request - {town}"
 
     headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
     prompt = (
@@ -382,7 +390,8 @@ def generate_mistral_complaint(brand_key):
         f"2. Write in a firm, polite, professional British English tone.\n"
         f"3. Explicitly demand a goodwill compensation voucher, credit, or full refund as a resolution for the distress caused.\n"
         f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
-        f"5. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
+        f"5. DO NOT use emojis or weird symbols. Keep text completely clean and professional.\n"
+        f"6. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
     )
 
     payload = {
@@ -402,11 +411,13 @@ def generate_mistral_complaint(brand_key):
             if lines and lines[0].lower().startswith("subject:"):
                 subject_line = lines[0].split(":", 1)[1].strip()
                 body_lines = lines[1:]
-            return "\n".join(body_lines).strip(), consistent_name, town, subject_line
+            raw_body = "\n".join(body_lines).strip()
+            return clean_text_for_brands(raw_body), consistent_name, town, clean_text_for_brands(subject_line)
     except Exception:
         traceback.print_exc()
 
-    return f"Service complaint reported at {town}. Expecting a goodwill voucher.", consistent_name, town, "Formal Complaint & Compensation Request"
+    fallback = f"Service complaint reported at {town}. Expecting a goodwill voucher."
+    return fallback, consistent_name, town, "Formal Complaint & Compensation Request"
 
 @bot.event
 async def on_ready():
@@ -465,7 +476,7 @@ async def on_message(message):
                 return
 
             def create_advanced_status_card():
-                width, height = 900, 600
+                width, height = 900, 680
                 image = Image.new("RGB", (width, height), color="#1E1E24")
                 draw = ImageDraw.Draw(image)
                 
@@ -486,28 +497,48 @@ async def on_message(message):
                 draw.text((50, 110), "Current Pipeline Status:", fill="#8E9297", font=font_bold)
                 draw.text((50, 130), pipeline_info.get('status', 'Unknown'), fill=status_color, font=font_header)
 
-                draw.text((30, 190), f"Brand Target: {pipeline_info.get('brand', 'Unknown')}", fill="#FFFFFF", font=font_bold)
-                draw.text((30, 215), f"Burner Address: {pipeline_info.get('address', 'Unknown')}", fill="#B9BBBE", font=font_regular)
-                draw.text((30, 240), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 180), f"Brand Target: {pipeline_info.get('brand', 'Unknown')}", fill="#FFFFFF", font=font_bold)
+                draw.text((30, 205), f"Burner Address: {pipeline_info.get('address', 'Unknown')}", fill="#B9BBBE", font=font_regular)
+                draw.text((30, 230), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
 
-                draw.rectangle([(30, 280), (width - 30, 420)], fill="#25272C", outline="#36393F", width=1)
-                draw.text((45, 290), "Dispatched Complaint Snippet:", fill="#00B0F4", font=font_bold)
-                y_text = 315
-                for line in pipeline_info.get('body_snippet', '').splitlines():
-                    if y_text > 400:
+                # Expanded body snippet block for complete message context
+                draw.rectangle([(30, 260), (width - 30, 460)], fill="#25272C", outline="#36393F", width=1)
+                draw.text((45, 270), "Dispatched Complaint Context / Message Body:", fill="#00B0F4", font=font_bold)
+                
+                y_text = 295
+                body_text = pipeline_info.get('body_snippet', 'No content recorded')
+                # Word wrapping helper for clean display
+                words = body_text.split()
+                current_line = ""
+                wrapped_lines = []
+                for word in words:
+                    test_line = current_line + " " + word if current_line else word
+                    if len(test_line) > 85:
+                        wrapped_lines.append(current_line)
+                        current_line = word
+                    else:
+                        current_line = test_line
+                if current_line:
+                    wrapped_lines.append(current_line)
+
+                for line in wrapped_lines:
+                    if y_text > 445:
+                        draw.text((45, y_text), "[Content truncated for length...]", fill="#8E9297", font=font_regular)
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
-                    y_text = y_text + 18
+                    y_text += 18
 
-                draw.rectangle([(30, 440), (width - 30, 570)], fill="#25272C", outline="#36393F", width=1)
+                # Reply snippet block
+                draw.rectangle([(30, 480), (width - 30, 650)], fill="#25272C", outline="#36393F", width=1)
                 reply_snip = pipeline_info.get('reply_snippet', 'No response yet')
-                draw.text((45, 450), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
-                y_text = 475
-                for line in reply_snip.splitlines():
-                    if y_text > 550:
+                draw.text((45, 490), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
+                
+                y_text = 515
+                for line in reply_snip.splitlines()[:7]:
+                    if y_text > 630:
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
-                    y_text = y_text + 18
+                    y_text += 18
 
                 path = f"status_{real_key}.png"
                 image.save(path)
