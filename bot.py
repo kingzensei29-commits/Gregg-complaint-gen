@@ -373,7 +373,9 @@ class DynamicBurnerMailbox:
 def clean_text_for_brands(text):
     if not text:
         return ""
-    cleaned = text.encode("ascii", "ignore").decode("ascii")
+    # Strip markdown emphasis symbols and non-ASCII artifacts cleanly
+    cleaned = text.replace("*", "").replace("#", "")
+    cleaned = cleaned.encode("ascii", "ignore").decode("ascii")
     return cleaned.strip()
 
 def generate_mistral_complaint(brand_key):
@@ -391,12 +393,13 @@ def generate_mistral_complaint(brand_key):
     prompt = (
         f"You are writing a formal customer complaint email for the brand '{b_data['name']}' regarding their branch in {town}. "
         f"STRICT DIRECTIVES:\n"
-        f"1. Describe a realistic, frustrating customer service or product quality issue.\n"
-        f"2. Write in a firm, polite, professional British English tone.\n"
-        f"3. Explicitly demand a goodwill compensation voucher, credit, or full refund as a resolution for the distress caused.\n"
-        f"4. Sign off using the exact consumer name: '{consistent_name}'.\n"
-        f"5. DO NOT use emojis or weird symbols. Keep text completely clean and professional.\n"
-        f"6. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
+        f"1. Describe a realistic, frustrating customer service or product quality issue directly without placeholders.\n"
+        f"2. DO NOT use brackets like [insert date] or [insert item]. Fill in realistic details directly (e.g., last Tuesday, a cold meal/damaged item).\n"
+        f"3. Write in a firm, polite, professional British English tone.\n"
+        f"4. Explicitly demand a goodwill compensation voucher, credit, or full refund as a resolution for the distress caused.\n"
+        f"5. Sign off using the exact consumer name: '{consistent_name}'.\n"
+        f"6. DO NOT use emojis, markdown asterisks, or weird symbols. Keep text completely clean and professional.\n"
+        f"7. The very first line must start with 'SUBJECT: ' followed by a strong complaint subject line."
     )
 
     payload = {
@@ -481,7 +484,7 @@ async def on_message(message):
                 return
 
             def create_advanced_status_card():
-                width, height = 900, 710
+                width, height = 900, 800  # Increased canvas height to prevent truncation
                 image = Image.new("RGB", (width, height), color="#1E1E24")
                 draw = ImageDraw.Draw(image)
                 
@@ -507,8 +510,8 @@ async def on_message(message):
                 draw.text((30, 230), f"Subject: {pipeline_info.get('subject', 'Unknown')}", fill="#B9BBBE", font=font_regular)
                 draw.text((30, 255), f"Dispatched Time: {pipeline_info.get('timestamp', 'Unknown')}", fill="#00B0F4", font=font_regular)
 
-                # Expanded body snippet block for complete message context
-                draw.rectangle([(30, 285), (width - 30, 485)], fill="#25272C", outline="#36393F", width=1)
+                # Expanded body snippet block with larger height boundary
+                draw.rectangle([(30, 285), (width - 30, 535)], fill="#25272C", outline="#36393F", width=1)
                 draw.text((45, 295), "Dispatched Complaint Context / Message Body:", fill="#00B0F4", font=font_bold)
                 
                 y_text = 320
@@ -527,20 +530,20 @@ async def on_message(message):
                     wrapped_lines.append(current_line)
 
                 for line in wrapped_lines:
-                    if y_text > 470:
+                    if y_text > 515:
                         draw.text((45, y_text), "[Content truncated for length...]", fill="#8E9297", font=font_regular)
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text += 18
 
-                # Reply snippet block
-                draw.rectangle([(30, 505), (width - 30, 680)], fill="#25272C", outline="#36393F", width=1)
+                # Reply snippet block shifted downwards
+                draw.rectangle([(30, 555), (width - 30, 770)], fill="#25272C", outline="#36393F", width=1)
                 reply_snip = pipeline_info.get('reply_snippet', 'No response yet')
-                draw.text((45, 515), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
+                draw.text((45, 565), "Latest Support Reply & Voucher Status:", fill="#FF5555" if "No response" in reply_snip else "#55FF55", font=font_bold)
                 
-                y_text = 540
-                for line in reply_snip.splitlines()[:6]:
-                    if y_text > 660:
+                y_text = 590
+                for line in reply_snip.splitlines()[:8]:
+                    if y_text > 750:
                         break
                     draw.text((45, y_text), line, fill="#DCDDDE", font=font_regular)
                     y_text += 18
