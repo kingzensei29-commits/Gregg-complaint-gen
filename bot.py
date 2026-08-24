@@ -12,7 +12,7 @@ from faker import Faker
 from PIL import Image, ImageDraw, ImageFont
 from cryptography.fernet import Fernet
 
-# --- Encryption Core Setup ---
+# --- Encryption Core Setup (For brain.enc only) ---
 def get_cipher():
     key = os.getenv("ENCRYPTION_KEY")
     if not key:
@@ -22,7 +22,8 @@ def get_cipher():
         key = key.encode()
     return Fernet(key)
 
-def load_json_file(filename, default_val=None):
+# For encrypted files (brain.enc)
+def load_encrypted_json(filename, default_val=None):
     if default_val is None:
         default_val = {}
     if os.path.exists(filename):
@@ -38,7 +39,7 @@ def load_json_file(filename, default_val=None):
             print(f"Error loading/decrypting {filename}: {e}")
     return default_val
 
-def save_json_file(filename, data):
+def save_encrypted_json(filename, data):
     try:
         cipher = get_cipher()
         json_str = json.dumps(data, indent=4)
@@ -47,6 +48,18 @@ def save_json_file(filename, data):
             f.write(encrypted_data)
     except Exception as e:
         print(f"❌ Critical Error saving/encrypting {filename}: {e}")
+
+# For plain configuration files (brands.json)
+def load_plain_json(filename, default_val=None):
+    if default_val is None:
+        default_val = {}
+    if os.path.exists(filename):
+        try:
+            with open(filename, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"Error loading plain JSON {filename}: {e}")
+    return default_val
 
 # --- Flask Web Server with Secured Brevo Inbound Webhook ---
 app = Flask(__name__)
@@ -98,10 +111,7 @@ def brevo_inbound_webhook():
                 brand_name = matched_pipeline["brand_name"]
                 burner_address = f"{matched_pipeline['burner_username']}@{matched_pipeline['burner_domain']}"
                 
-                # Check for phone/security verification triggers first
                 requires_verification = any(term in email_body.lower() for term in ["verify", "phone", "sms", "code", "security check"])
-                
-                # Check if the support reply includes a voucher, gift card, credit, or compensation
                 has_voucher = any(term in email_body.lower() for term in ["voucher", "gift card", "credit", "reward", "compensate", "compensation", "e-code", "promo"])
 
                 if requires_verification:
@@ -120,7 +130,6 @@ def brevo_inbound_webhook():
                         )
                     remove_persistent_pipeline(burner_address)
                 else:
-                    # Regular support response without a voucher — silently close pipeline without DMing user
                     update_burner_status_by_address(burner_address, "Support response received (No voucher, skipped DM)")
                     remove_persistent_pipeline(burner_address)
 
@@ -142,7 +151,9 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 BRAIN_FILE = "brain.enc"
 BRANDS_FILE = "brands.json"
 
-BRANDS = load_json_file(BRANDS_FILE, {})
+# Load brands properly as plain JSON
+BRANDS = load_plain_json(BRANDS_FILE, {})
+print(f"✅ Loaded {len(BRANDS)} brands from {BRANDS_FILE}: {list(BRANDS.keys())}")
 
 def load_brain():
     default_structure = {
@@ -153,7 +164,7 @@ def load_brain():
         "pending_phone_verifications": {},
         "user_phone_vault": {}
     }
-    data = load_json_file(BRAIN_FILE, default_structure)
+    data = load_encrypted_json(BRAIN_FILE, default_structure)
     updated = False
     for key in default_structure:
         if key not in data:
@@ -164,7 +175,7 @@ def load_brain():
     return data
 
 def save_brain(data):
-    save_json_file(BRAIN_FILE, data)
+    save_encrypted_json(BRAIN_FILE, data)
 
 def generate_custom_complaint_id(username):
     clean_name = re.sub(r'[^a-zA-Z]', '', username).lower()
@@ -372,7 +383,7 @@ async def on_message(message):
                     await message.reply("⚠️ Please provide a valid full phone number (e.g., `!setphone +447123456789`).")
                     return
 
-        # Matches format: !<brandname> gen where brandname is a key in BRANDS (brands.json)
+        # Matches format: !<brandname> gen
         if content_lower.startswith("!") and content_lower.endswith(" gen"):
             brand_query = content_lower[1:-4].strip()
             
